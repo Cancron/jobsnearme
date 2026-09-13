@@ -22,6 +22,7 @@ import {
   slotLocalDay,
   slotLocalTime,
   canReview,
+  companyLabel,
   formatInstantIn,
   isCancellable,
   splitAvailability,
@@ -168,6 +169,20 @@ describe('seniorityLabel', () => {
 
   test('uses the shared label map for the one value that needs it', () => {
     expect(seniorityLabel('c_level')).toBe('C-level');
+  });
+});
+
+describe('companyLabel', () => {
+  test('prefers the display name when present', () => {
+    expect(companyLabel('Acme Corp', 'acme')).toBe('Acme Corp');
+  });
+
+  test('falls back to the slug when only that is known', () => {
+    expect(companyLabel('', 'acme')).toBe('acme');
+  });
+
+  test('reads as Independent when neither is set', () => {
+    expect(companyLabel('', '')).toBe('Independent');
   });
 });
 
