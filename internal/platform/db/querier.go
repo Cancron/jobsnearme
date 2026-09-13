@@ -1499,6 +1499,14 @@ type Querier interface {
 	DeleteMailbox(ctx context.Context, userID int64) error
 	// The mentor_id guard scopes the delete to the owner's own schedule.
 	DeleteMentorAvailabilityRule(ctx context.Context, arg DeleteMentorAvailabilityRuleParams) (int64, error)
+	// Half of the sync's replace-the-window reconcile (see mentor-calendar-busy-sync's
+	// design.md): every 'google_calendar' interval for this mentor starting before
+	// window_end is cleared, then UpsertMentorBusyInterval re-inserts what free/busy
+	// currently reports — in one transaction, so ListBusy never sees a partial reconcile.
+	// No lower bound: the sync worker only ever writes intervals starting at or after "now",
+	// so a row this misses is one no run has ever produced, and a mentor's every synced
+	// interval always starts before some future run's window_end.
+	DeleteMentorBusyIntervalsInWindow(ctx context.Context, arg DeleteMentorBusyIntervalsInWindowParams) error
 	// Clears the recurring week, leaving dated overrides alone. The cabinet edits the week as
 	// a whole — a schedule is a shape, not a list of rows a user reasons about individually —
 	// so a save is this followed by inserts, inside one transaction.
@@ -2214,7 +2222,10 @@ type Querier interface {
 	// The grant row as the status endpoint reads it. `scopes` is included because the two
 	// consents are separate: a connected mailbox says nothing about the calendar, and a
 	// calendar grant may have no mailbox behind it, so the row's existence cannot answer
-	// either question on its own.
+	// either question on its own. `mentor_busy_sync_opted_in` is included for the same
+	// reason again, one purpose further: `scopes` alone cannot say whether THIS consent was
+	// given, since it reuses the same calendar.readonly scope the candidate-side calendar
+	// grant already requests.
 	GetGmailConnection(ctx context.Context, userID int64) (GetGmailConnectionRow, error)
 	GetGmailRefreshToken(ctx context.Context, userID int64) (GetGmailRefreshTokenRow, error)
 	// What a write caller (mentor-google-meet-link's CreateMeetEvent) needs in one round
@@ -3658,6 +3669,13 @@ type Querier interface {
 	// The other half of the busy set: intervals read from the mentor's own calendar. Empty
 	// until that sync ships, and carries only the bounds — no title, no attendee.
 	ListMentorBusyIntervals(ctx context.Context, arg ListMentorBusyIntervalsParams) ([]ListMentorBusyIntervalsRow, error)
+	// Drives cmd/mentor-busy-sync: every mentor whose account both explicitly opted in to
+	// busy-sync AND still holds a usable calendar.readonly grant, and whose profile is
+	// published — an unapproved or withdrawn mentor offers no bookable slots, so their busy
+	// time is not worth an API call until they are approved (the very next run picks them up
+	// once they are). The scope check is defensive alongside the flag: a grant can lose a
+	// scope outside our control, and this worker must not call an API it no longer holds.
+	ListMentorBusySyncConnections(ctx context.Context, calendarScope string) ([]ListMentorBusySyncConnectionsRow, error)
 	// All of the caller's own feedback on a company, across every category they've
 	// reviewed it under — the write dialog's "which categories have I already
 	// used" read. Not filtered by status, same reasoning as GetMyCompanyFeedback.
@@ -5582,6 +5600,15 @@ type Querier interface {
 	// backfill pass racing behind it — plus is_current, which this only ever turns TRUE, never
 	// back to false, when the caller found a present-reading label is_current disagreed with.
 	SetExperienceEmploymentBackfilledDates(ctx context.Context, arg SetExperienceEmploymentBackfilledDatesParams) (int64, error)
+	// A move to 'needs_reconsent' also clears mentor_busy_sync_opted_in — every caller
+	// (gmail-sync, cal-sync, mentor-calendar-write, mentor-busy-sync) marks that status only
+	// when this account's ONE shared refresh token has failed, and the flag exists solely to
+	// gate a consent that same token covers. Left standing, a later reconnect through an
+	// UNRELATED flow (which restores status to 'connected' while still requesting
+	// calendar.readonly) would silently resume busy-sync without the mentor ever revisiting
+	// its own connect screen — see mentor-calendar-busy-sync's design.md. Fixed here, once,
+	// rather than in each caller: they all share this exact statement, and duplicating the
+	// clear in only one of them is precisely the gap a code review found.
 	SetGmailStatus(ctx context.Context, arg SetGmailStatusParams) error
 	SetGmailSynced(ctx context.Context, arg SetGmailSyncedParams) error
 	// Targeted enrichment write used by the enrichment command: set only the payload
@@ -5644,6 +5671,11 @@ type Querier interface {
 	// leave an orphaned Google event. No WHERE beyond the id — this always follows a
 	// successful CreateMentorBooking for the same row, in the same request.
 	SetMentorBookingCalendarEvent(ctx context.Context, arg SetMentorBookingCalendarEventParams) error
+	// Records that a mentor completed the busy-sync connect flow's own callback. Set only
+	// there, never inferred from `scopes` alone: calendar.readonly is the same scope the
+	// unrelated candidate-side calendar grant already requests, so scope presence cannot
+	// tell the two purposes apart (see mentor-calendar-busy-sync's design.md).
+	SetMentorBusySyncOptedIn(ctx context.Context, userID int64) error
 	// The mentor's own switch. Deliberately independent of status: pausing and resuming
 	// need no moderator, and neither may alter what the moderator decided.
 	SetMentorPaused(ctx context.Context, arg SetMentorPausedParams) (Mentor, error)
@@ -6338,6 +6370,12 @@ type Querier interface {
 	// it via SetJobEnrichment's overlay). The conflict reopens a previously closed posting
 	// (closed_at = NULL) since the moderator is re-asserting it.
 	UpsertManualJob(ctx context.Context, arg UpsertManualJobParams) (Job, error)
+	// One row per synced busy interval, source fixed to 'google_calendar' (the only writer
+	// of this source). external_id is not Google's — a free/busy period carries no
+	// identifier — but the interval's own bounds, concatenated (see busysync.externalID), so
+	// a re-sync of an unchanged interval updates rather than duplicates, exactly as the
+	// table's unique constraint intends for an events-based sync.
+	UpsertMentorBusyInterval(ctx context.Context, arg UpsertMentorBusyIntervalParams) error
 	// One review per booking, editable. booking_id is the primary key, so a second submission
 	// is an update by construction rather than by a service check — which is also why the
 	// review count cannot drift from the number of reviewed sessions.
