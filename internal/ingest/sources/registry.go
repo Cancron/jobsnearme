@@ -122,6 +122,10 @@ func Taxonomy() map[string]Source { return All(nil) }
 // HTTP client across them. Adding a platform is a new adapter plus one line here.
 // A nil client builds the transport-free taxonomy registry — call Taxonomy for that.
 func All(c HTTPClient) map[string]Source {
+	// SEEK, JobStreet and JobsDB share the same frontend/GraphQL infrastructure and our
+	// crawl egresses from one IP, so their detail requests must compete for ONE token bucket.
+	// Two independent pacedSeekPoster calls would silently double the measured safe rate.
+	seekNetworkDetail := pacedSeekPoster(c)
 	registry := reg(
 		NewGreenhouse(c),
 		NewLever(c),
@@ -365,7 +369,8 @@ func All(c HTTPClient) map[string]Source {
 		// hydrating descriptions from its GraphQL endpoint. Keyless.
 		// Its GraphQL detail endpoint meters by a per-IP request budget, so only that path is
 		// rate-paced; the search listing stays on the bare client.
-		NewSeek(c, pacedSeekPoster(c)),
+		NewSeek(c, seekNetworkDetail),
+		NewJobStreet(c, seekNetworkDetail),
 		// Japan Dev: curated Japan technology aggregator. One public sitemap lists posting URLs;
 		// detail pages carry structured Nuxt SSR state and official ATS apply links when available.
 		NewJapanDev(c),
