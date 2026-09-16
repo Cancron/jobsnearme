@@ -7,7 +7,9 @@ const baseProfile: UserProfile = {
   specializations: ['backend'],
   skills: ['go', 'python'],
   seniorities: [],
-  excluded_skills: ['java'],
+  excluded_skills: [],
+  excluded_sources: [],
+  excluded_companies: [],
   location_preferences: null,
   derived_location: null,
   cv: null,
@@ -15,11 +17,9 @@ const baseProfile: UserProfile = {
   updated_at: null,
 };
 
-const { addSkill, removeSkill, avoidSkill, unavoidSkill } = vi.hoisted(() => ({
+const { addSkill, removeSkill } = vi.hoisted(() => ({
   addSkill: vi.fn(),
   removeSkill: vi.fn(),
-  avoidSkill: vi.fn(),
-  unavoidSkill: vi.fn(),
 }));
 
 vi.mock('$lib/profile.svelte', () => ({
@@ -29,8 +29,6 @@ vi.mock('$lib/profile.svelte', () => ({
     },
     addSkill,
     removeSkill,
-    avoidSkill,
-    unavoidSkill,
   },
 }));
 
@@ -43,8 +41,6 @@ vi.mock('$lib/skillDictionary', () => ({
 beforeEach(() => {
   addSkill.mockReset().mockResolvedValue(baseProfile);
   removeSkill.mockReset().mockResolvedValue(baseProfile);
-  avoidSkill.mockReset().mockResolvedValue(baseProfile);
-  unavoidSkill.mockReset().mockResolvedValue(baseProfile);
 });
 
 describe('SkillsCard', () => {
@@ -57,16 +53,6 @@ describe('SkillsCard', () => {
     await fireEvent.click(screen.getByTitle('go'));
 
     expect(removeSkill).toHaveBeenCalledWith('go');
-    expect(onProfileChanged).toHaveBeenCalledTimes(1);
-  });
-
-  it('notifies onProfileChanged after un-avoiding a skill succeeds', async () => {
-    const onProfileChanged = vi.fn();
-    render(SkillsCard, { props: { onProfileChanged } });
-
-    await fireEvent.click(screen.getByTitle('java'));
-
-    expect(unavoidSkill).toHaveBeenCalledWith('java');
     expect(onProfileChanged).toHaveBeenCalledTimes(1);
   });
 

@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tick, untrack, type Snippet } from 'svelte';
   import {
+    Ban,
     Briefcase,
     ClipboardList,
     Contact,
@@ -46,6 +47,7 @@
     { id: 'contacts', href: '/my/profile/contacts', icon: Contact },
     { id: 'location', href: '/my/profile/location', icon: MapPin },
     { id: 'skills', href: '/my/profile/skills', icon: Tags },
+    { id: 'avoid', href: '/my/profile/avoid', icon: Ban },
     { id: 'experience', href: '/my/profile/experience', icon: Briefcase },
     { id: 'education', href: '/my/profile/education', icon: GraduationCap },
     { id: 'screening', href: '/my/profile/screening', icon: ClipboardList },
