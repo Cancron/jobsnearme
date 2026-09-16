@@ -240,7 +240,7 @@ export function emptyFilters(): JobFilters {
 export function filtersToParams(f: JobFilters): URLSearchParams {
   const p = new URLSearchParams();
   if (f.q) p.set('q', f.q);
-  if (f.qFields && f.qFields.length > 0) p.set('q_fields', f.qFields.join(','));
+  if (f.qFields?.length) p.set('q_fields', f.qFields.join(','));
   for (const def of FACETS) {
     const st = f.facets[def.param];
     if (!st) continue;
@@ -459,7 +459,7 @@ export function filtersWithParts(
   for (const [param, value] of parts) {
     facets[param] = facetSetSign(facets[param] ?? emptyFacet(), value, 'include');
   }
-  return { ...f, q, qFields: qFields && qFields.length > 0 ? [...qFields] : null, facets };
+  return { ...f, q, qFields: qFields?.length ? [...qFields] : null, facets };
 }
 
 /** Build a fresh filter set seeded from a user profile — the reset-and-seed behind
