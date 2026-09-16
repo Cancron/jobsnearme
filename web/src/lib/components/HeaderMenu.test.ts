@@ -2,40 +2,59 @@ import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// SOURCE-TEXT AUDIT, not a mounted-component test — web/ has no component-test
-// infrastructure at all (see jobActionStrip.test.ts's own comment: vitest.config.ts runs
-// in plain Node, no Svelte plugin, no DOM).
+// A SOURCE-TEXT AUDIT, not a mounted-component test — web/ has no component-test
+// infrastructure at all (see jobActionStrip.test.ts's own comment: no Svelte
+// plugin, no DOM in vitest.config.ts).
 //
-// Pins the header-navigation spec's "Paying-tier badge on the desktop profile icon"
-// requirement: the badge reads the tier that now rides along on GET /api/v1/auth/me
-// (welcome-pro-subscribers), renders only for a paying tier, and lives on the
-// desktop-only profile icon rather than anywhere else in the menu.
+// openspec/changes/split-header-profile-menu split the desktop profile/account
+// items and Log out off into HeaderProfileMenu.svelte, leaving this component's
+// own dropdown as site nav + theme toggle on desktop. The mobile drawer is
+// unchanged — same markup, now scoped with `sm:hidden` rather than removed.
 const SOURCE = readFileSync(join(import.meta.dirname, 'HeaderMenu.svelte'), 'utf8');
 
-describe('HeaderMenu profile icon tier badge', () => {
-  it("derives the badge tier from the signed-in user, defaulting to 'free'", () => {
-    expect(SOURCE).toContain("currentUser()?.tier ?? 'free'");
+describe('HeaderMenu desktop/mobile split', () => {
+  it('renders HeaderProfileMenu in place of the old inline profile/sign-in block', () => {
+    expect(SOURCE).toContain("import HeaderProfileMenu from './HeaderProfileMenu.svelte'");
+    expect(SOURCE).toContain('<HeaderProfileMenu');
   });
 
-  it('shows no badge for a free account', () => {
-    expect(SOURCE).toContain("{#if tier !== 'free'}");
+  it('does not render its own inline profile icon or sign-in button in the bar', () => {
+    // The bar-level profile/sign-in block this used to own (aria-label="Profile" /
+    // aria-label="Sign in" as a direct <a>/<button> in the control strip) is now
+    // HeaderProfileMenu's job.
+    // Anchored on role="menu" (the dropdown panel), not the literal string
+    // "{#if open}" — that also occurs earlier inside a code comment (the
+    // menu-toggle button's own doc comment), which would truncate the "bar"
+    // slice before reaching the end of the bar's actual markup.
+    const bar = SOURCE.slice(0, SOURCE.indexOf('role="menu"'));
+    expect(bar).not.toContain('aria-label="Profile"');
+    expect(bar).not.toContain('aria-label="Sign in"');
   });
 
-  it('attaches the badge to the desktop-only profile icon, not the mobile drawer row', () => {
-    // The desktop icon is the `hidden sm:inline-flex` link outside the {#if open} menu
-    // panel — the mobile drawer's own Profile row (inside the panel) is a separate
-    // element and must not carry a second copy of the badge.
-    const desktopIconStart = SOURCE.indexOf("aria-label={tier === 'free' ? 'Profile'");
-    const badgeStart = SOURCE.indexOf("{#if tier !== 'free'}");
-    const menuPanelStart = SOURCE.indexOf('{#if open}');
-    expect(desktopIconStart).toBeGreaterThan(-1);
-    expect(badgeStart).toBeGreaterThan(desktopIconStart);
-    expect(badgeStart).toBeLessThan(menuPanelStart);
+  it('scopes the account-items block to mobile with sm:hidden', () => {
+    expect(SOURCE).toMatch(/<div class="sm:hidden">(\s*<!--[\s\S]*?-->)?\s*\{#if isAuthenticated\(\)\}/);
   });
 
-  it("reflects the tier in the icon's accessible name", () => {
-    expect(SOURCE).toContain(
-      "aria-label={tier === 'free' ? 'Profile' : `Profile (${tier})`}",
-    );
+  it('drops the desktop auth action but keeps the desktop theme toggle', () => {
+    const start = SOURCE.indexOf('hidden sm:block');
+    const end = SOURCE.indexOf('Mobile-only: GitHub + theme + auth');
+    const desktopTailBlock = SOURCE.slice(start, end);
+    expect(desktopTailBlock).toContain('{@render themeButton()}');
+    expect(desktopTailBlock).not.toContain('{@render authButton()}');
+  });
+
+  it('still renders the auth action in the mobile pinned bottom bar', () => {
+    const mobileBar = SOURCE.slice(SOURCE.indexOf('Mobile-only: GitHub + theme + auth'));
+    expect(mobileBar).toContain('{@render authButton()}');
+  });
+
+  it('renders Open immediately after About in the nav links', () => {
+    const aboutAt = SOURCE.indexOf('NAV.about.href');
+    const openAt = SOURCE.indexOf('NAV.open.href', aboutAt);
+    expect(openAt, 'expected an Open link after the About link').toBeGreaterThan(aboutAt);
+    const between = SOURCE.slice(SOURCE.indexOf('</a>', aboutAt), openAt);
+    // Nothing but whitespace/comments/attributes between the two menuitems — no
+    // other nav link sits between them.
+    expect(between).not.toContain('role="menuitem"');
   });
 });
