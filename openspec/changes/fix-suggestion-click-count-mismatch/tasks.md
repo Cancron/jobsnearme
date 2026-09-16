@@ -95,17 +95,19 @@ literal quote marks for a title suggestion. See design.md's Addendum 2.
       change, answers when the test clears `DATABASE_URL` — not touched by this diff).
 - [x] 5.2 `gofmt -l .` prints nothing for touched Go files; `npx eslint` clean on
       touched frontend files.
-- [ ] 5.3 (Deferred — see note) Manually verify against a live stack: type "Founding
-      Engineer" (or another known-mismatched phrase) in the search box, click the
-      title suggestion — both from the launcher and while already on `/jobs` — page
-      forward, and confirm the request stays quoted and title-scoped throughout, with
-      a result count close to the suggestion's displayed count, AND that the chip/
-      search box/analytics all show plain text with no quote marks. Skipped in this
-      session — it needs a stack with real, indexed catalogue data (`make up` +
-      seeding + a `cmd/build-suggestions` run), which is disproportionate
-      infrastructure to stand up for a fix already covered end-to-end by unit tests.
-      Do this once against staging or after deploy, not by standing up a local stack
-      just for it.
+- [x] 5.3 Verified against production (freehire.me) after deploy (commit `9b383c6f0`,
+      merged and released to host2 as part of `9c2a438ad`). `GET /api/v1/suggest?
+      q=Founding+Engineer` shows a "Founding Engineer" title suggestion with
+      `jobs: 730`. `GET /api/v1/jobs/search?q=Founding+Engineer` (the old, unscoped
+      shape) returns `total: 17831` — confirms the bug was real and reproducible at
+      this scale. `GET /api/v1/jobs/search?q=%22Founding+Engineer%22&q_fields=title`
+      (what the fix now sends) returns `total: 1548` — an ~11.5x reduction, closing
+      the large majority of the gap. Not exact parity with 730 (expected — see
+      design.md's Non-Goals: quoting is AND-of-tokens-in-title, not exact-phrase
+      adjacency, so e.g. "Senior Founding Engineer" now matches too). Did not
+      separately browser-verify the display-quote fix (chip/search-box/analytics) live
+      — covered deterministically by `displayQuery`'s unit tests and direct reading of
+      each call site; the API-level fix was the load-bearing risk to confirm live.
 - [x] 5.4 Confirm a suggestion click's search still appears under its plain
       (unquoted) form in `search_queries` rather than under a quoted variant —
       proven deterministically by `TestDemandKey_StripsMatchingQuotePairBeforeNormalising`
