@@ -21,6 +21,7 @@ import {
   Layers,
   MessagesSquare,
   TrendingUp,
+  Unlock,
   Wand,
 } from '@lucide/svelte';
 import type { LucideIcon } from '@lucide/svelte';
@@ -45,6 +46,9 @@ export const NAV = {
   // What this is and how it works — what a first-time visitor reads.
   howItWorks: { href: '/how-it-works', label: 'How it works', icon: Compass },
   about: { href: '/about', label: 'About', icon: Info },
+  // The open-startup transparency page — already linked from the footer, but until
+  // now unreachable from the header menu at all.
+  open: { href: '/open', label: 'Open', icon: Unlock },
 
   // What the product does beyond listing jobs.
   cvTailoring: { href: '/features/tailor', label: 'CV tailoring', icon: Wand },
