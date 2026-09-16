@@ -3,6 +3,8 @@ package ojcp
 import (
 	"slices"
 	"testing"
+
+	"github.com/strelov1/freehire/internal/dict/vocab"
 )
 
 func TestSearchInputBecomesOurOwnQueryVocabulary(t *testing.T) {
@@ -30,12 +32,16 @@ func TestSearchInputBecomesOurOwnQueryVocabulary(t *testing.T) {
 		"salary_min":         "120000",
 		"seniority":          "senior",
 		"posted_within_days": "7",
-		"limit":              "20",
-		"offset":             "40",
 	} {
 		if got := values.Get(key); got != want {
 			t.Errorf("%s = %q, want %q", key, got, want)
 		}
+	}
+
+	// The page is NOT among the values: the filter does not read `limit` or `offset`, so
+	// putting them there would only mean parsing them straight back out of a string.
+	if limit, offset := input.Page(); limit != 20 || offset != 40 {
+		t.Errorf("page = %d/%d, want 20/40", limit, offset)
 	}
 }
 
@@ -86,25 +92,55 @@ func TestSearchInputReportsAFilterItCannotHonour(t *testing.T) {
 	}
 }
 
+func TestSearchInputReportsAValueItsVocabularyDoesNotHold(t *testing.T) {
+	// The mirror of a dropped filter, and the more confusing failure of the two: an
+	// unrecognised value passed through reaches the index as a filter nothing matches, so the
+	// agent reads "no such jobs" where the truth is "I did not understand you".
+	input := SearchInput{Filters: &SearchFilters{EmploymentType: "gig_economy_hustle"}}
+
+	values, unsupported := input.QueryValues()
+
+	if got := values.Get("employment_type"); got != "" {
+		t.Errorf("employment_type = %q, want no filter applied for a value we do not hold", got)
+	}
+	if !slices.Contains(unsupported, "filters.employment_type") {
+		t.Errorf("unsupported = %v, want it to name the value it could not use", unsupported)
+	}
+}
+
+func TestSearchInputPassesEveryEmploymentTypeItDoesHold(t *testing.T) {
+	// Walks the real vocabulary rather than a list written here: a type added to `vocab` and
+	// not reachable through this surface would otherwise be reported unsupported forever,
+	// with every hand-written case still green.
+	for _, value := range vocab.EmploymentTypeValues {
+		t.Run(value, func(t *testing.T) {
+			values, unsupported := SearchInput{Filters: &SearchFilters{EmploymentType: value}}.QueryValues()
+
+			if values.Get("employment_type") != value {
+				t.Errorf("employment_type = %q, want %q", values.Get("employment_type"), value)
+			}
+			if len(unsupported) != 0 {
+				t.Errorf("unsupported = %v, want none for a type we hold", unsupported)
+			}
+		})
+	}
+}
+
 func TestSearchInputHoldsThePageWithinWhatTheStandardAllows(t *testing.T) {
 	// pagination.limit has a maximum of 50 in the input schema. Honouring a larger number
 	// would answer with a page the standard's own schema rejects.
 	input := SearchInput{Pagination: &SearchPagination{Limit: 500}}
 
-	values, _ := input.QueryValues()
-
-	if got := values.Get("limit"); got != "50" {
-		t.Errorf("limit = %q, want it capped at the schema's maximum", got)
+	if limit, _ := input.Page(); limit != maxSearchLimit {
+		t.Errorf("limit = %d, want it capped at the schema's maximum", limit)
 	}
 }
 
 func TestSearchInputAppliesTheStandardsDefaultPage(t *testing.T) {
 	input := SearchInput{Query: "go"}
 
-	values, _ := input.QueryValues()
-
-	if got := values.Get("limit"); got != "10" {
-		t.Errorf("limit = %q, want the schema's default", got)
+	if limit, offset := input.Page(); limit != defaultSearchLimit || offset != 0 {
+		t.Errorf("page = %d/%d, want the schema's default", limit, offset)
 	}
 }
 

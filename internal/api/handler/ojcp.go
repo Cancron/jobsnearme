@@ -4,13 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"strconv"
+	"time"
 
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/adaptor"
 	"github.com/jackc/pgx/v5"
 
-	"github.com/strelov1/freehire/internal/api/atsapply"
 	"github.com/strelov1/freehire/internal/api/ojcp"
 	"github.com/strelov1/freehire/internal/api/ojcpmcp"
 	"github.com/strelov1/freehire/internal/ingest/applyform"
@@ -34,30 +33,37 @@ type ojcpStore interface {
 }
 
 type ojcpHandlers struct {
-	search    searcher
-	store     ojcpStore
-	projector ojcp.Projector
+	search searcher
+	store  ojcpStore
+	// attachReality hangs the posting-reality signal on a view. It is a FIELD, not a method
+	// calling a package function, because the real lookup needs the concrete *db.Queries
+	// (ghostEvidenceFor takes one, not a port) and a test must still be able to drive the
+	// behaviour. Nil means the signal is off — the shape every test that does not care
+	// about it uses.
+	attachReality func(ctx context.Context, row db.Job, view *jobview.Job)
+	projector     ojcp.Projector
 }
 
-// ojcpSubmittableProviders is what this deployment can complete an application on without
-// a person — the value `supports_agent_submission` is published from.
+// newOJCPHandlers builds the OJCP surface.
 //
-// It asks atsapply rather than listing providers, because this repo already holds three
-// lists that are easy to mistake for one: jobview.AutoApplyProviders (four ATSs a fill may
-// be ATTEMPTED on), the enqueue set (five that may be QUEUED), and the fill set — which
-// is the only one that means "submitted", and is Greenhouse alone today. A fourth
-// hand-written copy here would be the one that goes stale, and the field it feeds is the
-// one an agent plans around.
-func ojcpSubmittableProviders() map[string]bool {
-	return atsapply.SubmittableProviders()
-}
-
+// submittable is what this deployment can complete an application on without a person, and
+// is what `supports_agent_submission` is published from. Callers pass
+// atsapply.SubmittableProviders() rather than a list, because this repo already holds three
+// sets that are easy to mistake for one: jobview.AutoApplyProviders (four ATSs a fill may be
+// ATTEMPTED on), the enqueue set (five that may be QUEUED), and the fill set — which is the
+// only one that means "submitted", and is Greenhouse alone today. A fourth hand-written copy
+// would be the one that goes stale, and the field it feeds is the one an agent plans around.
 func newOJCPHandlers(s searcher, store ojcpStore, origin string, submittable map[string]bool) *ojcpHandlers {
-	return &ojcpHandlers{
+	h := &ojcpHandlers{
 		search:    s,
 		store:     store,
 		projector: ojcp.NewProjector(origin, submittable),
 	}
+	// The reality lookups need the concrete queries, which the production store is.
+	if q, ok := store.(*db.Queries); ok {
+		h.attachReality = realityAttacher(q)
+	}
+	return h
 }
 
 func (h *ojcpHandlers) register(api fiber.Router, mw middleware) {
@@ -112,14 +118,14 @@ func (h *ojcpHandlers) OJCPSearchJobs(c *fiber.Ctx) error {
 	// answer. encoding/json does this by default; the explicit note is here so nobody
 	// "fixes" it with DisallowUnknownFields later.
 	if err := json.Unmarshal(c.Body(), &input); len(c.Body()) > 0 && err != nil {
-		return ojcpError(c, fiber.StatusBadRequest, "invalid_input", "request body is not valid JSON")
+		return ojcpError(c, fiber.StatusBadRequest, ojcp.ErrorInvalidRequest, "request body is not valid JSON")
 	}
 
 	resp, err := h.SearchJobs(c.Context(), input)
 	if err != nil {
 		var fe *fiber.Error
 		if errors.As(err, &fe) {
-			return ojcpError(c, fe.Code, "unavailable", fe.Message)
+			return ojcpError(c, fe.Code, ojcp.ErrorProviderError, fe.Message)
 		}
 		return err
 	}
@@ -138,11 +144,13 @@ func (h *ojcpHandlers) SearchJobs(ctx context.Context, input ojcp.SearchInput) (
 	}
 
 	values, unsupported := input.QueryValues()
+	limit, offset := input.Page()
+
 	res, err := h.search.Search(ctx, search.SearchParams{
 		Query:  values.Get("q"),
 		Filter: search.FilterFromValues(values),
-		Limit:  intOr(values.Get("limit"), 10),
-		Offset: intOr(values.Get("offset"), 0),
+		Limit:  limit,
+		Offset: offset,
 	})
 	if err != nil {
 		return ojcp.SearchJobsResponse{}, err
@@ -156,7 +164,7 @@ func (h *ojcpHandlers) SearchJobs(ctx context.Context, input ojcp.SearchInput) (
 	return ojcp.SearchJobsResponse{
 		Query:         values.Get("q"),
 		TotalResults:  int(res.Total),
-		Offset:        intOr(values.Get("offset"), 0),
+		Offset:        offset,
 		Jobs:          jobs,
 		IgnoredParams: unsupported,
 	}.Finalize(), nil
@@ -168,7 +176,7 @@ func (h *ojcpHandlers) OJCPJobDetail(c *fiber.Ctx) error {
 	if err != nil {
 		var notFound ojcpmcp.NotFoundError
 		if errors.As(err, &notFound) {
-			return ojcpError(c, fiber.StatusNotFound, "not_found", "no posting with that ojcp_id")
+			return ojcpError(c, fiber.StatusNotFound, ojcp.ErrorJobNotFound, "no posting with that ojcp_id")
 		}
 		return err
 	}
@@ -184,15 +192,94 @@ func (h *ojcpHandlers) JobDetail(ctx context.Context, ojcpID string) (ojcp.JobDe
 		}
 		return ojcp.JobDetailResponse{}, err
 	}
+	if !publishedToAgents(row) {
+		return ojcp.JobDetailResponse{}, ojcpmcp.NotFoundError{What: "posting"}
+	}
 
 	view, err := jobview.FromRow(row)
 	if err != nil {
 		return ojcp.JobDetailResponse{}, err
 	}
+	if h.attachReality != nil {
+		h.attachReality(ctx, row, &view)
+	}
 
 	return ojcp.JobDetailResponse{
 		Job: h.projector.JobPosting(view, h.applyFormFor(ctx, row.ID)),
 	}.Finalize(), nil
+}
+
+// attachReality computes the posting-reality signal and hangs it on the view, which is what
+// makes the projection's `agent_notes` say anything at all.
+//
+// It has to be done explicitly: Ghost is NOT intrinsic to a jobview — it is time-dependent
+// and never stored, so every surface that wants it attaches it (jobs.go, search.go,
+// me_tracking.go). A projection that merely READS j.Ghost therefore publishes nothing, for
+// every posting, forever — which is what this surface did until a review walked the call
+// graph rather than the tests.
+//
+// Two lookups per posting, and only on the DETAIL read. The search tool deliberately does
+// not carry the verdict: it would be two more queries per page for a field an agent has to
+// open the posting to act on anyway, and `get_job_detail` is one call away.
+//
+// Best-effort throughout, like every other caller: a failed lookup leaves the signal off
+// rather than failing the read, because the honest direction for a missing lookup is to say
+// nothing.
+func realityAttacher(q *db.Queries) func(context.Context, db.Job, *jobview.Job) {
+	return func(ctx context.Context, row db.Job, view *jobview.Job) {
+		attachRealityWith(ctx, q, row, view)
+	}
+}
+
+func attachRealityWith(ctx context.Context, q *db.Queries, row db.Job, view *jobview.Job) {
+	// A nil store skips the two lookups and classifies on the row alone — the same
+	// best-effort shape ghostEvidenceFor takes, and what lets the criteria reachable from
+	// the row (a stale ATS absence, a closed posting) still be reported.
+	repost, mass := int64(1), int64(1)
+	if cnt, err := roleClusterCount(ctx, q, db.RoleClusterCountParams{
+		CompanySlug:     row.CompanySlug,
+		RoleFingerprint: row.RoleFingerprint,
+	}); err == nil {
+		repost, mass = cnt.RepostCount, cnt.MassCount
+	}
+
+	now := time.Now()
+	reality := jobview.ClassifyReality(row, now, int(repost), int(mass))
+	view.Ghost = jobview.ClassifyGhost(jobview.GhostInput{
+		Now:          now,
+		Closed:       row.ClosedAt.Valid,
+		RealityClass: reality.Class,
+		ATSAbsentAt:  row.AtsAbsentAt.Time,
+		HasATSAbsent: row.AtsAbsentAt.Valid,
+		Evidence:     ghostEvidenceFor(ctx, q, []int64{row.ID})[row.ID],
+	})
+}
+
+// roleClusterCount is RoleClusterCount with a nil store tolerated, so the caller above
+// reads as one best-effort block rather than two.
+func roleClusterCount(ctx context.Context, q *db.Queries, p db.RoleClusterCountParams) (db.RoleClusterCountRow, error) {
+	if q == nil {
+		return db.RoleClusterCountRow{}, errNoStore
+	}
+	return q.RoleClusterCount(ctx, p)
+}
+
+// errNoStore reports that a best-effort lookup had nothing to ask.
+var errNoStore = errors.New("no store configured")
+
+// publishedToAgents reports whether a stored posting belongs on the OJCP surface: open,
+// canonical, and not private — the set the public search publishes.
+//
+// The filter has to live here because `GetJobBySlug` carries NO predicate at all. It is the
+// read a private job's own creator uses, and the detail page relies on that to serve a
+// closed posting with its `closed_at` rendered. Neither is right for this surface: an agent
+// enumerates, caches and republishes what it is handed, so a private posting reaching one is
+// a different kind of exposure from a person following a link they were given.
+//
+// A refused posting answers NOT FOUND rather than forbidden. Whether a private posting
+// exists under some slug is itself not an anonymous caller's business.
+func publishedToAgents(row db.Job) bool {
+	return !row.IsPrivate && !row.ClosedAt.Valid && !row.DuplicateOf.Valid
 }
 
 // applyFormFor reads the posting's captured application form, or nil where there is none.
@@ -221,7 +308,7 @@ func (h *ojcpHandlers) OJCPEmployerContext(c *fiber.Ctx) error {
 	if err != nil {
 		var notFound ojcpmcp.NotFoundError
 		if errors.As(err, &notFound) {
-			return ojcpError(c, fiber.StatusNotFound, "not_found", "no employer with that employer_id")
+			return ojcpError(c, fiber.StatusNotFound, ojcp.ErrorEmployerNotFound, "no employer with that employer_id")
 		}
 		return err
 	}
@@ -238,17 +325,6 @@ func (h *ojcpHandlers) EmployerContext(ctx context.Context, employerID string) (
 		return ojcp.EmployerContextResponse{}, err
 	}
 	return ojcp.EmployerContextFrom(company), nil
-}
-
-// intOr reads a value this package itself wrote into the query values a moment earlier, so
-// an unparseable one means a bug here rather than bad input — the fallback keeps the page
-// sane instead of failing a read over it.
-func intOr(raw string, fallback int) int {
-	n, err := strconv.Atoi(raw)
-	if err != nil {
-		return fallback
-	}
-	return n
 }
 
 // ojcpError renders a failure in the standard's envelope with the matching HTTP status.

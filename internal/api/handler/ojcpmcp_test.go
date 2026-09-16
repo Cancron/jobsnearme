@@ -2,13 +2,13 @@ package handler
 
 import (
 	"encoding/json"
+	"reflect"
 	"testing"
 
 	"github.com/gofiber/fiber/v2"
 
 	"github.com/strelov1/freehire/internal/api/ojcp"
 	"github.com/strelov1/freehire/internal/api/ojcpmcp"
-	"github.com/strelov1/freehire/internal/job/jobview"
 	"github.com/strelov1/freehire/internal/platform/db"
 	"github.com/strelov1/freehire/internal/search/search"
 )
@@ -23,7 +23,7 @@ func TestBothTransportsAnswerTheSameQuestionIdentically(t *testing.T) {
 	// the method's own value is what proves the two cannot drift. A second projection on
 	// either side would show up here as a difference in the bytes.
 	fake := &fakeSearcher{res: search.SearchResult{
-		Hits:  []search.JobDocument{{ID: 7, Job: jobview.Job{PublicSlug: "go-dev-x", Title: "Go Dev", Company: "Acme"}}},
+		Hits:  []search.JobDocument{{ID: 7, Job: ojcpJobView(t, db.Job{PublicSlug: "go-dev-x", Title: "Go Dev", Company: "Acme"})}},
 		Total: 3,
 	}}
 	h := newOJCPHandlers(fake, fakeOJCPStore{}, "https://freehire.me", map[string]bool{"greenhouse": true})
@@ -121,27 +121,21 @@ func TestManifestDeclaresTheLimitTheRoutesEnforce(t *testing.T) {
 	}
 }
 
-// sameJSON compares a decoded REST body against a value the MCP side returns, by the bytes
-// each serialises to — which is what an agent actually receives over either transport.
+// sameJSON compares a decoded REST body against the value the MCP side returns.
+//
+// The MCP value is serialised and read back first so both sides are the same kind of thing:
+// a generic JSON tree, which is what an agent actually receives over either transport. A
+// struct compared against a decoded map would differ on types alone and prove nothing.
 func sameJSON(t *testing.T, restBody map[string]any, direct any) bool {
 	t.Helper()
 
-	directRaw, err := json.Marshal(direct)
+	raw, err := json.Marshal(direct)
 	if err != nil {
 		t.Fatalf("marshalling the direct value: %v", err)
 	}
-	var directDecoded map[string]any
-	if err := json.Unmarshal(directRaw, &directDecoded); err != nil {
+	var asTree map[string]any
+	if err := json.Unmarshal(raw, &asTree); err != nil {
 		t.Fatalf("re-reading the direct value: %v", err)
 	}
-
-	restRaw, err := json.Marshal(restBody)
-	if err != nil {
-		t.Fatalf("re-marshalling the REST body: %v", err)
-	}
-	reencoded, err := json.Marshal(directDecoded)
-	if err != nil {
-		t.Fatalf("re-marshalling the direct value: %v", err)
-	}
-	return string(restRaw) == string(reencoded)
+	return reflect.DeepEqual(restBody, asTree)
 }
