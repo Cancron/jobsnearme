@@ -59,13 +59,10 @@
       ? employment.name || employment.role
       : employment.role || employment.company,
   );
-  const placeSecondary = $derived(
-    employment.kind === 'project'
-      ? employment.link
-      : employment.role && employment.company
-        ? employment.company
-        : '',
-  );
+  const placeSecondary = $derived.by(() => {
+    if (employment.kind === 'project') return employment.link;
+    return employment.role && employment.company ? employment.company : '';
+  });
 
   let expanded = $state(false);
 
