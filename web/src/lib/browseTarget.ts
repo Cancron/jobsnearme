@@ -28,7 +28,12 @@ export function browseQuery(plan: ApplyPlan): string {
   for (const [param, value] of plan.facets) {
     f.facets[param] = facetSetSign(f.facets[param] ?? emptyFacet(), value, 'include');
   }
-  return filtersToParams(f).toString();
+  const params = filtersToParams(f);
+  // q_fields is a query-scoped restriction tied to how `q` itself was built (quoted
+  // or not), not a persisted filter — it stays out of JobFilters/filtersToParams,
+  // which serialize the saved-search-shareable filter state.
+  if (plan.qFields?.length) params.set('q_fields', plan.qFields.join(','));
+  return params.toString();
 }
 
 /** The plan a locally-built starter row applies.
