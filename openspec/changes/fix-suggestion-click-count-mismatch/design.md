@@ -218,5 +218,15 @@ through.
 This was not caught by the original design or either implementation pass because
 every test written up to that point exercised `q`/`qFields` as request-construction
 inputs (what gets sent, what gets serialized to a URL) — none exercised what a human
-sees. `displayQuery` itself is fully unit-tested; the three call sites are the same
-kind of thin, Svelte-dependent glue documented as untested in Addendum 1.
+sees. `displayQuery` itself is fully unit-tested; the call sites are the same kind of
+thin, Svelte-dependent glue documented as untested in Addendum 1.
+
+A follow-up sweep for every `track()` call reading `.q` (not just the three the
+review named) found a fourth: `JobsView.svelte`'s separate `search` analytics event
+(distinct from `role_suggestion` — it fires on every applied-filter change, not only
+a suggestion pick) also read `filters.applied.q` raw. Fixed the same way. The
+review's three findings were real and specific, but "every place this shape of bug
+can occur" needed a grep across the whole `track()` surface, not just the sites
+named — worth remembering for a similar leak next time: search for the PATTERN
+(every reader of a field whose meaning just changed), not only the instances a
+review happened to name.

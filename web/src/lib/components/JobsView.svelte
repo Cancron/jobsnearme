@@ -503,7 +503,7 @@
       const searchKey = filtersToParams(filters.applied).toString();
       if (!firstRun && searchKey !== lastSearchKey) {
         track('search', {
-          q: filters.applied.q.trim(),
+          q: displayQuery(filters.applied.q.trim()),
           facets: activeFilterCount(filters.applied),
         });
       }

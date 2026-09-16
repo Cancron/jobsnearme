@@ -83,7 +83,8 @@ literal quote marks for a title suggestion. See design.md's Addendum 2.
 - [x] 4.3 Apply `displayQuery` at every point `q` is read for a human, not sent to
       the search API: `FilterSummary.svelte`'s chip text, `HeaderSearch.svelte`'s
       displayed/reconciled search-box value, `JobsView.svelte`'s analytics `role`
-      fallback.
+      fallback, and (found in a follow-up sweep for every `track()` call reading
+      `.q`) `JobsView.svelte`'s separate `search` analytics event's `q` field.
 - [x] 4.4 Run `npx svelte-check` and the full web test suite; confirm no regressions.
 
 ## 5. Verification
