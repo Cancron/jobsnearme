@@ -77,6 +77,39 @@ type Querier interface {
 	// argument unconditionally left rows reading link_source='agent' with a NULL
 	// confidence after a caller merely re-labelled the message.
 	AgentTriageEmail(ctx context.Context, arg AgentTriageEmailParams) (int64, error)
+	// Per-source snapshot (source_stats): the measurement cmd/rollup-stats takes on each run
+	// and the read the public /api/v1/sources endpoint serves from it.
+	//
+	// Rebuilt as an atomic delete-and-reinsert inside one transaction, like the facet
+	// snapshot beside it, so a reader never sees a partially rebuilt table — and so an
+	// adapter removed from the registry leaves the snapshot instead of lingering as a row
+	// nothing can explain.
+	// The whole measurement in one grouped scan over open postings.
+	//
+	// Reads no description column, deliberately: a `description` predicate de-TOASTs every
+	// row it touches, which at this catalogue's size is the difference between a pass that
+	// runs on a schedule and one that never finishes. Everything here is narrow.
+	//
+	// ats_matched counts rows the dedup pass matched to a first-party ATS posting. The
+	// marker is only ever set on an AGGREGATOR row (see the aggregator-suppression pass),
+	// so this is 0 for every other kind of source by construction — which is why the
+	// endpoint omits the figure for them rather than publishing that 0.
+	//
+	// It does NOT sample a posting URL. The first version did, to resolve a logo from the
+	// host — on the assumption that every posting of a source shares one. Production disproved
+	// it: an ATS posting's URL usually lives on the EMPLOYER's domain, so greenhouse sampled
+	// bankrate.com and successfactors a staffing agency, and the page served the wrong brand.
+	// Logos are resolved from the source's display name client-side instead.
+	//
+	// NOT is_private excludes the jd-tailor-intake private postings: one user's pasted job
+	// description, visible only to them. They are not part of the catalogue, they are already
+	// excluded from the search index at enqueue, and counting them here would both inflate a
+	// public figure and make it disagree with the de-duplicated count measured beside it.
+	//
+	// No index backs this. It is one sequential scan per rollup-stats run (every 3 hours, on a
+	// worker that already sweeps `jobs` several times per run), and an index on jobs(source)
+	// would be built and maintained on an 11M-row table to serve exactly one query.
+	AggregateOpenJobsBySource(ctx context.Context) ([]AggregateOpenJobsBySourceRow, error)
 	// Fold a follow-on edit into the newest revision: replace what it does, restate its
 	// description and the reason for the change, but LEAVE inverse alone. The inverse still leads
 	// back to the state before the first of the coalesced edits, which is what makes undo mean
@@ -258,6 +291,10 @@ type Querier interface {
 	// not rewritten — and the affected set is bounded to two boards, so unlike the
 	// multi-million-row backfills this needs no chunking.
 	BackfillProfessionITBoardTech(ctx context.Context, boardPatterns []string) (int64, error)
+	// Add a host to the blocklist, attributed to the blocking moderator. ON CONFLICT DO NOTHING
+	// makes blocking an already-blocked host a no-op rather than an error (submission.Service.Reject
+	// calls this every time block_domain is set, whether or not the host is new).
+	BlockHost(ctx context.Context, arg BlockHostParams) error
 	// Find the ashby board already carrying a job with this Ashby job id — for company careers
 	// pages that embed Ashby via the ashby_jid widget param (the board slug is JS-rendered, absent
 	// from the URL/markup). external_id is "<board>:<uuid>"; served by the
@@ -574,6 +611,8 @@ type Querier interface {
 	// credential at all; guarding on both would let a pre-0119 row — secret set, id null —
 	// read as unclaimed and be overwritten, orphaning a key that is still spending.
 	ClaimUserLLMKey(ctx context.Context, arg ClaimUserLLMKeyParams) (ClaimUserLLMKeyRow, error)
+	// The id span cmd/report-classify-drift walks. Same shape as SkillGapReportBounds.
+	ClassifyDriftReportBounds(ctx context.Context) (ClassifyDriftReportBoundsRow, error)
 	// Drop an application's pipeline progress while keeping the record — the notes are the
 	// candidate's own text, and reconsidering is not a claim the process never happened.
 	// Clearing both stage and applied_at is what takes it off the board (see columnOf).
@@ -721,6 +760,27 @@ type Querier interface {
 	// for the still-open ones). WHERE closed_at IS NULL keeps it idempotent; a later
 	// upsert of the same (source, external_id) reopens it if the posting reappears.
 	CloseJobBySourceExternalID(ctx context.Context, arg CloseJobBySourceExternalIDParams) (int64, error)
+	// Closes one id-range chunk of a source whose stored rows carry an employer we now know is
+	// wrong and cannot repair in place (see migration 0165 for the case that forced the label).
+	//
+	// Chunked over an id RANGE rather than a keyset over matching rows: the affected set is the
+	// whole of one source, the id sequence runs far ahead of the live row count, and a range walk
+	// lets the caller resume at a printed cursor after an interruption. Idempotent — `closed_at IS
+	// NULL` means a re-run over a chunk already done writes nothing, so stopping mid-way is free.
+	//
+	// NO search_delete_outbox CTE, unlike every other Close* query in this file, and that is the
+	// one thing to think twice about before copying this. The others close tens to thousands of
+	// rows, where riding the enqueue on the UPDATE is both correct and cheap. This closes a source
+	// whole — 1.47M rows for apploi against a deletion queue whose ordinary depth is ~7k — and
+	// Meilisearch runs ONE serial task queue, so a wave that size would sit in front of the
+	// scheduled rebuild and the incremental pushes for as long as it took to drain. cmd/merge-
+	// companies already made this trade and documents it ("Do NOT reindex afterwards... the
+	// scheduled freehire-reindexw picks it up"): the rebuild reads open rows from Postgres, so a
+	// closed row simply is not in the next index. The cost is that the postings stay searchable
+	// until that rebuild — hours, not days — which is the right price for not blocking it.
+	//
+	// :one rather than :execrows because the CTE moves the row count out of the command tag.
+	CloseMisattributedSourceJobs(ctx context.Context, arg CloseMisattributedSourceJobsParams) (int64, error)
 	// The same age rule as CloseStaleUnsignalledJobs, for a source that IS re-crawled but
 	// whose postings a probe can never judge — whatjobs today, whose stored url is the ad
 	// network's own tracking landing page and answers identically whether or not the posting
@@ -1031,6 +1091,10 @@ type Querier interface {
 	// to ListCompanies (including the job_count > 0 hiring scope).
 	CountCompanies(ctx context.Context, arg CountCompaniesParams) (int64, error)
 	CountCompanyFeedback(ctx context.Context, companySlug string) (int64, error)
+	// How many company pages this engine has been sent since a moment. Counted separately
+	// from the job ledger and then ADDED by the caller: the budget belongs to the engine,
+	// and a company page costs it exactly what a job page does.
+	CountCompanySearchPingsSince(ctx context.Context, arg CountCompanySearchPingsSinceParams) (int64, error)
 	// Total live messages for the caller under the same optional filters as ListEmails, plus
 	// how many of them the `other` default omitted.
 	//
@@ -1074,6 +1138,16 @@ type Querier interface {
 	// How many lists a user has — the per-user cap is enforced against this in the
 	// service before a create.
 	CountJobLists(ctx context.Context, userID int64) (int64, error)
+	// How many URLs this engine has been sent since a moment, across BOTH events — what
+	// bounds the day. The budget is the engine's, not the event's: a closure and a new
+	// posting cost the same one call, so counting them separately would let the day's
+	// allowance be spent twice.
+	//
+	// Served by job_search_pings_engine_pinged_at_idx, which is why migration 0163 leaves
+	// that index alone rather than re-keying it by kind: this query never filters on kind,
+	// and an unconstrained column sitting between the two it does filter on costs a planner
+	// without a B-tree skip scan every historical row for that engine.
+	CountJobSearchPingsSince(ctx context.Context, arg CountJobSearchPingsSinceParams) (int64, error)
 	// Per-stage application counts for the Pipeline snapshot. An application is any
 	// row the user applied to or staged (saved-only rows are excluded); a row with
 	// applied_at set but no stage groups under a NULL stage. The Go layer folds these
@@ -1306,6 +1380,9 @@ type Querier interface {
 	// days (a day that had only closures, now reopened) are dropped rather than left
 	// stale.
 	DeleteAllJobDailyStats(ctx context.Context) error
+	// First half of the atomic rebuild. Run in the same transaction as the
+	// InsertSourceStat loop.
+	DeleteAllSourceStats(ctx context.Context) error
 	// Retire a capture that succeeded. The stored form is the record; the queue entry has
 	// nothing left to say.
 	DeleteApplyFormEntry(ctx context.Context, id int64) error
@@ -2199,11 +2276,33 @@ type Querier interface {
 	// Aggregate interaction counts for the public engagement endpoint. Aggregate-only:
 	// every column is a scalar total, so no user identifier or row-level field is
 	// selected. saved / applied are user_jobs interaction-row totals across all users.
-	// "viewed" is the all-traffic view total (anonymous + signed-in + API) produced by
+	// "viewed" is the human view total (anonymous + signed-in, every visitor) produced by
 	// the nginx-log aggregation worker. It sums the worker's per-day rollup
 	// (job_daily_views), NOT jobs.view_count — a SUM over the 6M-row jobs table seqscans
 	// for ~90s and times the endpoint out, while the rollup is small and fast. (The
 	// per-job "N views" on the job card still reads jobs.view_count directly, no scan.)
+	// It sums `page_uniques`, NEVER `uniques` — the same rule social-digest's ranking
+	// follows, and for the same reason: `uniques` fuses bot-filtered page opens with
+	// UNFILTERED API reads, and crawlers are most of this host's traffic. Measured
+	// 2026-09-16, `uniques` reported 11,027,722 against `page_uniques`' 5,401,347, so
+	// the figure this endpoint published was more than half robots — and it sat on /open
+	// beside the seven signed-in counters as though it described the same people.
+	//
+	// `viewed` is therefore NOT an all-time figure, and `viewed_since` is what says so.
+	// Migration 0138 added `page_uniques` with a `DEFAULT 0` and deliberately did not
+	// backfill it, so every row the worker wrote before that day carries a zero: measured
+	// 2026-09-16, July held 203,781 `uniques` and August 5,194,396, both against a
+	// `page_uniques` of 0. Neither is recoverable. `cmd/rollup-views --backfill` reads the
+	// older .gz history, but `processed_view_logs` marks a file applied by its filesystem
+	// identity and skips it forever after — which is the same cursor that stops a re-run
+	// double-counting `uniques` — and the host's logrotate keeps 12 days, so the July and
+	// August logs are gone from disk regardless. Publishing the sum as a cumulative total
+	// would trade "inflated by robots" for "silently the last fortnight", so the window is
+	// published beside the number instead. It is DERIVED (the earliest day the column
+	// actually carries a count), never a constant naming the migration: if the history is
+	// ever recovered the window widens on its own, and a hardcoded date would then lie in
+	// the other direction. NULL means nothing has been rolled up yet.
+	//
 	// The remaining five mirror event-total semantics from their own tables:
 	// cvs_uploaded is the count of users holding a stored résumé (one per user, so also a
 	// people count); cvs_tailored counts CVs created as a per-vacancy copy, read off the
@@ -2660,6 +2759,44 @@ type Querier interface {
 	// that company's counters in the same transaction. pgx.ErrNoRows on an unknown id.
 	HideCompanyFeedback(ctx context.Context, id int64) (string, error)
 	IncrementThreadReplyCount(ctx context.Context, id int64) error
+	// How many rows each source has just written, and how many DISTINCT postings those rows
+	// stand for. The gap between the two is the signal: one posting stored under many boards.
+	//
+	// It exists because nothing could see the apploi failure of 2026-09-02. api.apploi.com
+	// stopped honouring its `employer` parameter, so all 5,833 of that provider's boards began
+	// fetching the same global catalogue, and 1,565,701 rows accumulated standing for 3,024
+	// real jobs -- 518 copies each, under 518 different and mostly wrong employers, 12.5% of
+	// everything live search could find. Every crawl SUCCEEDED throughout. board_health stayed
+	// green, the per-run family stayed green, and the queue depths stayed normal, because
+	// nothing was failing: the platform answered 200 with valid postings. It ran for two weeks
+	// and was found by a person reading the catalogue, not by a gauge.
+	//
+	// The window is ten minutes, and that is a measured choice rather than a round number.
+	// Measured on prod 2026-09-16: 24h costs 20,818ms, 60m costs 837ms, 15m costs 328ms, and
+	// 10m costs 22ms -- the same order as ProviderIngestHealth's 54ms, which is the bar this
+	// file's header sets. Ten minutes is also sufficient: the duplication appears BETWEEN
+	// boards, never within one crawl (a board that fetches the global catalogue writes each of
+	// its postings once), so the gap opens as soon as two boards of the same source land in one
+	// window. apploi would have had roughly forty per window. A source whose boards crawl more
+	// slowly than that reads 1:1 and is simply not accused.
+	//
+	// Rides jobs_open_created_idx (created_at DESC, id DESC) WHERE closed_at IS NULL, which is
+	// why it is scoped to open rows -- and that scope is honest for this question anyway: a row
+	// closed within the window was withdrawn, not ingested.
+	//
+	// Publishes the two RAW counts, never a ratio. Which ratio deserves a page belongs in the
+	// alert rule, the same argument freehire_provider_boards already makes for board states --
+	// and a ratio computed here would also have to invent an answer for a source that wrote
+	// nothing, where the honest count is a pair of zeros.
+	//
+	// Sources that write no url are excluded rather than counted as one big duplicate: a row
+	// with no url cannot be told apart from another one, so including them would accuse a
+	// source of duplication for a field it simply does not carry.
+	//
+	// NOT is_private for the catalogue-wide reason (internal/job/privatejob), and because it is
+	// right for this question on its own: a pasted JD was not INGESTED, and counting one would
+	// put 'pasted' and 'weblink' in the exposition as providers that no crawl can explain.
+	IngestDuplicationMetrics(ctx context.Context) ([]IngestDuplicationMetricsRow, error)
 	// Record a received webhook event, once. See the add-pro-subscription change.
 	//
 	// ON CONFLICT DO NOTHING against the (provider, event_id) unique index is the whole of the
@@ -2774,6 +2911,22 @@ type Querier interface {
 	// partial unique index on (user_id, ref) WHERE kind='reward' guards against a double
 	// grant for the same ref even under a race.
 	InsertReward(ctx context.Context, arg InsertRewardParams) error
+	// Second half of the atomic rebuild: one row per source in the UNION of the adapter
+	// registry and what the scan above found — see sourcestats.Rows, which is where that
+	// union is decided.
+	//
+	// Not "one per scanned source": a registered adapter whose postings have all closed must
+	// land here carrying 0, because "we read this source and it currently carries nothing" is
+	// a measurement, while a missing row would be read as "we never measured it", and the
+	// page says different things about the two.
+	//
+	// Not "one per registered adapter" either: a source can carry postings without being a
+	// crawl adapter (telegram), and dropping it would quietly falsify a page whose whole
+	// claim is that it lists every source.
+	//
+	// browsable_jobs is NULL when Meilisearch could not be reached. Never 0: see the
+	// migration's comment.
+	InsertSourceStat(ctx context.Context, arg InsertSourceStatParams) error
 	// Crawl write path: store a fetched post once. ON CONFLICT DO NOTHING makes
 	// re-crawling idempotent — a stored post (pending, done, or dead-lettered) is
 	// never reset. extracted_at is non-NULL when the ingest prefilter already
@@ -2799,6 +2952,8 @@ type Querier interface {
 	// carries nine other columns a gate has no use for — and a gate that reads a whole user
 	// row invites somebody to branch on a second field from it later.
 	IsBetaTester(ctx context.Context, id int64) (bool, error)
+	// Whether a normalized host (see submission.normalizeHost) is on the submission blocklist.
+	IsHostBlocked(ctx context.Context, host string) (bool, error)
 	// Cursor read: has this rotated file (by content signature) been applied? The
 	// signature is stable across rename and gzip, so a re-run recognizes the same file.
 	IsViewLogFileProcessed(ctx context.Context, signature int64) (bool, error)
@@ -2826,6 +2981,13 @@ type Querier interface {
 	// a range scan; starts_with()/a default-collation LIKE would seq-scan the whole source (37s
 	// over greenhouse's ~300k rows). board_pattern is "<escaped board>:%", built by the repository.
 	JobsExistForBoard(ctx context.Context, arg JobsExistForBoardParams) (bool, error)
+	// Title, location, description and the currently-stored countries/regions for a named set
+	// of ids, for cmd/backfill-remote-region-restriction.
+	//
+	// Ids come from a Meilisearch query for the same reason JobDescriptionsByIDs's do: a WHERE
+	// over `description` de-TOASTs the column for every row it examines, and the search index
+	// already holds the text.
+	JobsForGeographyRecheckByIDs(ctx context.Context, ids []int64) ([]JobsForGeographyRecheckByIDsRow, error)
 	// Location, description and the currently-stored work_mode for a named set of ids, for
 	// cmd/backfill-remote-perk-false-positive.
 	//
@@ -3139,6 +3301,23 @@ type Querier interface {
 	// than duplicating the threshold logic across an uncapped and a capped variant. total is the
 	// FULL count before the cap, same convention as ListUnhealthyBoards.Total.
 	ListChronicBoards(ctx context.Context, arg ListChronicBoardsParams) ([]ListChronicBoardsRow, error)
+	// Postings that have CLOSED since they were announced, so the engine can re-read a page
+	// whose validThrough has moved into the past.
+	//
+	// A closure is a re-crawl, never a deletion: the page stays at HTTP 200 and keeps its
+	// JobPosting markup with validThrough retired, which is one of the three ways Google
+	// documents for taking a job posting down. Sending URL_DELETED for a page that is still
+	// online is a misuse of the API, and the API's penalty is the quota.
+	//
+	// Only postings this engine was ALREADY told about ('created'): announcing the closure
+	// of a page an engine never heard of teaches it a dead URL and spends budget doing it.
+	// That also keeps the candidate set naturally small — it can never exceed what has been
+	// announced — which is why this needs no recency window of its own.
+	//
+	// MOST RECENTLY CLOSED first, the mirror of the other query's policy: a stale listing is
+	// most damaging while it is still ranking, and the oldest closures have long since been
+	// re-crawled on Google's own schedule.
+	ListClosedJobsToPing(ctx context.Context, arg ListClosedJobsToPingParams) ([]ListClosedJobsToPingRow, error)
 	// Catalog page: companies with their job counts, most active first. The job count
 	// is read from the denormalized companies.job_count column (maintained by
 	// cmd/recount-companies), so this read does not join jobs. Ordered by job_count
@@ -3196,6 +3375,22 @@ type Querier interface {
 	// once). Keyset-paginated by slug so one run can be bounded and a later run
 	// resumes past what it already paged through.
 	ListCompaniesMissingWikipediaInfo(ctx context.Context, arg ListCompaniesMissingWikipediaInfoParams) ([]ListCompaniesMissingWikipediaInfoRow, error)
+	// The company pages this engine has not been told about, newest first.
+	//
+	// job_count > 0 is the whole eligibility, and it is not a fresh judgement: it is the
+	// same gate that puts a company in the sitemap, derived by cmd/recount-companies from
+	// the postings the SEARCH INDEX will hold (see the long argument on that query in
+	// companies.sql). So a page announced here is exactly a page the site already claims,
+	// and a company whose last posting drops out of search stops being offered without this
+	// query knowing why.
+	//
+	// NEWEST FIRST, matching the job query's policy: a company only just discovered is the
+	// one no engine can have seen, and the older rows have had every chance to be crawled.
+	// Not by job_count — the evidence points the other way. The company pages actually
+	// ranking in Bing are the long tail (laserfocus, truebiz, read-bean, astra-tech-labs),
+	// because for a small employer this page may be the only assembled list of its roles,
+	// while a large one's own careers site already owns that query.
+	ListCompaniesToPing(ctx context.Context, arg ListCompaniesToPingParams) ([]string, error)
 	// The open titles a company carries on its OWN board — a source of kind `ats` or
 	// `company`, never an aggregator. The worker turns these into role keys and asks
 	// whether an aggregator posting's key is among them.
@@ -3240,6 +3435,15 @@ type Querier interface {
 	// former-name slug candidates, instead of one CompanyExists round trip per
 	// candidate per entry (the dataset runs several thousand entries deep).
 	ListCompanySlugs(ctx context.Context) ([]string, error)
+	// ListCompanyWebsites returns the companies whose curated record holds a website, which
+	// is the only population cmd/publish-logo-domains can publish a domain for. ~17,900 rows
+	// of ~480,000 companies as of 2026-09-16.
+	//
+	// name is selected beside the website because the company surfaces (/companies, the
+	// company header, the company picker) ask the logo proxy with companies.name rather than
+	// with any posting's spelling of it, and that value is not guaranteed to appear in jobs.
+	//
+	ListCompanyWebsites(ctx context.Context) ([]ListCompanyWebsitesRow, error)
 	// Drives the sync worker: every connection still authorized AND holding a mailbox.
 	//
 	// The address is the test, and it is not decoration. Since the calendar consent exists,
@@ -3579,6 +3783,31 @@ type Querier interface {
 	ListJobListMembershipForJob(ctx context.Context, arg ListJobListMembershipForJobParams) ([]ListJobListMembershipForJobRow, error)
 	// A user's job lists, most recently updated first (the account-area order).
 	ListJobLists(ctx context.Context, userID int64) ([]ListJobListsRow, error)
+	// One chunk of the skill-gap report: every (job id, raw skill phrase) pair LLM
+	// enrichment recorded, for jobs in an id range.
+	//
+	// The CASE inside the LATERAL call keeps the query safe regardless of what the
+	// query planner decides to do: jsonb_array_elements_text errors on a non-array JSON
+	// value, and this call does not rely on a later WHERE predicate being pushed down
+	// ahead of it to avoid that — substituting '[]'::jsonb for anything that is not a
+	// JSON array (enrichment.skills absent, enrichment itself an empty object, or
+	// defensively some other JSON shape) makes the call total on its own: it always
+	// sees an array, and a job with no skills array simply contributes zero rows.
+	//
+	// The LIMIT bounds how many (id, skill) pairs one statement returns, not how many
+	// jobs it reads. Unlike ListJobsForRequirementsBackfill's one-row-per-job cap, this
+	// is a one-row-per-(job, skill) LATERAL expansion, so the LIMIT is not guaranteed to
+	// land on a job-id boundary — the caller (cmd/report-skill-gaps) accounts for that:
+	// when a chunk comes back full, it holds back the last id's rows and resumes AT
+	// that id rather than past it, so a job's skill list is never read half-counted.
+	//
+	// enriched_at IS NOT NULL, not `enrichment IS NOT NULL`: jobs.enrichment defaults to
+	// '{}'::jsonb NOT NULL (migration 0001), so a job that has never been enriched still
+	// has a non-NULL enrichment column — enriched_at is the real "this job has actually
+	// been enriched" signal. The CASE above already makes an unenriched row contribute
+	// zero rows on its own (an empty object has no 'skills' array), so this filter is a
+	// cheaper way to skip most of the table rather than a correctness requirement.
+	ListJobSkillsForGapReport(ctx context.Context, arg ListJobSkillsForGapReportParams) ([]ListJobSkillsForGapReportRow, error)
 	// Newest-added first: created_at is when the job entered the catalogue (stable
 	// across re-ingests), so fresh ingests surface on top regardless of how old the
 	// platform's posted_at is. id breaks ties within one ingest batch.
@@ -3628,6 +3857,24 @@ type Querier interface {
 	// inside it. The caller resumes from the last id it saw when a chunk comes back full,
 	// so a dense stretch is walked in bounded steps rather than materialised at once.
 	ListJobsForRequirementsBackfill(ctx context.Context, arg ListJobsForRequirementsBackfillParams) ([]ListJobsForRequirementsBackfillRow, error)
+	// The newest eligible postings this engine has not been told about yet, for
+	// cmd/search-ping. The gate mirrors needsRecentFeed in cmd/ingest/store.go — open,
+	// canonical, public, technical — because a URL worth announcing is a URL the site
+	// itself claims, and those are the same postings.
+	//
+	// NEWEST FIRST is the whole selection policy, and it is doing two jobs. The obvious
+	// one: a posting is most worth announcing while it is still open, and the budget is
+	// far smaller than the catalogue, so anything but recency spends it on pages whose
+	// moment has passed. The second is a quality guard we get for free — the sitemap
+	// additionally excludes the "likely-evergreen" reality class, which lives only in the
+	// search index and cannot be joined here, but that class is earned by a posting
+	// staying open for a long time, so the newest rows have not had the chance to qualify.
+	// Google adjusts the daily quota by the quality of what is submitted, which is why the
+	// divergence is worth naming rather than leaving to be discovered.
+	//
+	// The anti-join is served by job_search_pings_pkey; the ORDER BY by the same
+	// open-and-recent index the public feed uses.
+	ListJobsToPing(ctx context.Context, arg ListJobsToPingParams) ([]ListJobsToPingRow, error)
 	// Incremental keyset scan for `reindex --since`: like ListJobsByIDAfter but only
 	// rows changed at or after the cutoff. Every write path (UpsertJob, the close
 	// sweeps, SetJobEnrichment, UpdateJobDerived on a fingerprint move) stamps
@@ -3680,6 +3927,18 @@ type Querier interface {
 	// reviewed it under — the write dialog's "which categories have I already
 	// used" read. Not filtered by status, same reasoning as GetMyCompanyFeedback.
 	ListMyCompanyFeedback(ctx context.Context, arg ListMyCompanyFeedbackParams) ([]CompanyFeedback, error)
+	// Accounts currently entitled to a paying tier (pro or ultra, per the same
+	// pro_until/ultra_until this whole file resolves everything else from) that have not yet
+	// received the one-time welcome email. cmd/pro-welcome-mail's candidate page.
+	//
+	// pro_until/ultra_until, not the three per-provider sources: this asks the same question
+	// plan.TierOf answers everywhere else, so a manual grant or a store subscription reaches a
+	// welcome exactly like a Stripe one does.
+	//
+	// Ordered by id for a stable, resumable page — the candidate set is small and every row
+	// returned here is claimed (pro_welcome_sent_at stamped) before the next page is read, so
+	// there is no starvation risk the way a NULLS-FIRST stamp order guards against elsewhere.
+	ListNewlyPayingUsersMissingWelcomeEmail(ctx context.Context, maxRows int32) ([]ListNewlyPayingUsersMissingWelcomeEmailRow, error)
 	// Greeted a while ago, and still without an active alert — the one action the
 	// product is built around.
 	//
@@ -3689,6 +3948,28 @@ type Querier interface {
 	// "you signed up a few days ago and still have no alert" an hour apart. From two
 	// mails in an hour, a stranger is indistinguishable from a spammer.
 	ListNoAlertCandidates(ctx context.Context, arg ListNoAlertCandidatesParams) ([]ListNoAlertCandidatesRow, error)
+	// ListOpenJobCompanySpellings returns every distinct way an open posting spells its
+	// company's name. 412,648 rows as of 2026-09-16, measured before the NOT is_private
+	// clause below was added — that population is user-pasted JDs and does not move the
+	// figure or the plan, both of which are set by the sequential scan.
+	//
+	// This is a deliberate SEQUENTIAL SCAN of jobs, and the narrower-looking alternative is
+	// four times slower. Measured on production 2026-09-16:
+	//
+	//   this query                                        53s  (seq scan)
+	//   the same joined to the 17,859 companies above    200s  (index nested loop)
+	//
+	// Restricting to the companies we can publish drives 17,859 index searches, each fetching
+	// ~102 heap rows at random: 1.59M blocks of random I/O against the seq scan's sequential
+	// read of the same heap. Fewer rows, more work. The caller filters in Go instead.
+	//
+	// NOT is_private excludes the jd-tailor-intake private-job path: a private posting is one
+	// user's pasted job description, and the employer they happen to have pasted is not a
+	// fact about our catalogue. It contributes nothing here either — a spelling only earns an
+	// entry when the company already carries a curated website, which a private paste does
+	// not create.
+	//
+	ListOpenJobCompanySpellings(ctx context.Context) ([]ListOpenJobCompanySpellingsRow, error)
 	// Everyone greeted and past the wait, whether or not they set up an alert: this
 	// step asks for a star and a Discord visit, which is worth asking of a browser as
 	// much as of a regular.
@@ -3735,6 +4016,11 @@ type Querier interface {
 	// Capped at 500 as a runaway-growth guard — far above any plausible backlog; a queue
 	// that deep needs bulk triage, not a longer page.
 	ListPendingReports(ctx context.Context) ([]ListPendingReportsRow, error)
+	// id+url of every pending submission, used only to find which OTHER pending rows share the
+	// host being blocked (see RejectAndBlockHost in the submission package): host matching needs
+	// Go's net/url normalization (see submission.normalizeHost), so this fetches the candidates
+	// and the caller filters in Go rather than duplicating that normalization in SQL.
+	ListPendingSubmissionURLs(ctx context.Context) ([]ListPendingSubmissionURLsRow, error)
 	// The moderator review queue: pending submissions, newest first, with the submitter's
 	// email so the moderator can judge provenance. Capped at 500 as a runaway-growth
 	// guard — far above any plausible backlog; a queue that deep needs bulk triage,
@@ -3826,6 +4112,9 @@ type Querier interface {
 	// reads is written to the PUBLIC companies row (RenameSlugCompany below). A JD one user
 	// pasted in is not a board, and it must not be the source of an employer's public name.
 	ListSlugLikeCompaniesForBackfill(ctx context.Context) ([]ListSlugLikeCompaniesForBackfillRow, error)
+	// The whole snapshot. Aggregate only — per-source counts, no record-level data. A few hundred rows, so it is read whole and joined in Go against
+	// the adapter registry rather than filtered here.
+	ListSourceStats(ctx context.Context) ([]SourceStat, error)
 	// "My submissions": one user's submissions, newest first, whatever their status.
 	// LEFT JOIN the minted job (present only once approved) to surface its public_slug,
 	// so the UI can link an approved submission straight to its live vacancy page.
@@ -3910,6 +4199,36 @@ type Querier interface {
 	// First page of a thread's replies, oldest first. LEFT JOIN so an authorless reply
 	// still returns — a future AI reply, or one whose author deleted their account.
 	ListThreadRepliesFirst(ctx context.Context, arg ListThreadRepliesFirstParams) ([]ListThreadRepliesFirstRow, error)
+	// One chunk of the classify-drift report: every distinct title among enriched jobs in
+	// an id range, with how many jobs in THIS CHUNK carried it and one representative
+	// enrichment seniority/category pair (MIN picks an arbitrary but deterministic one —
+	// the report only needs a disagreement signal per title, not a distribution across
+	// postings that share a title but disagree with each other).
+	//
+	// Deliberately NO row LIMIT, unlike ListJobSkillsForGapReport: GROUP BY already caps
+	// this statement's output at the number of DISTINCT titles in the id range, which is
+	// always far below the range's row count, so the id range width alone (the caller's
+	// chunk-size knob) is what bounds one statement's cost. A LIMIT on top of an
+	// unordered GROUP BY would silently drop titles from the chunk rather than bounding
+	// memory, with no id to resume from — aggregated rows carry no single id to resume a
+	// partial chunk from, unlike the per-row chunks elsewhere in this file.
+	//
+	// Grouping happens per chunk, not across the whole table: a title spanning more than
+	// one id range comes back as more than one row, one per chunk it appears in. The
+	// caller (cmd/report-classify-drift) merges those by title across chunks.
+	//
+	// enriched_at IS NOT NULL, not `enrichment IS NOT NULL` or is_tech/closed_at:
+	// jobs.enrichment defaults to '{}'::jsonb NOT NULL (migration 0001), so a job that
+	// has never been enriched still has a non-NULL enrichment column — enriched_at is
+	// the real "this job has actually been enriched" signal, the same one
+	// EnqueuePendingJobs uses to decide what still needs enriching. A title's dictionary
+	// answer is a fact about the title text alone, independent of whether the posting is
+	// open or confirmed technical, and filtering on either would hide real drift on
+	// titles that skew toward one state. COALESCE to '' rather than leaving the
+	// aggregate nullable: a title where every enriched job left a facet unstated is
+	// exactly the "no opinion" case dictgap.ClassifyDriftCandidates already treats as
+	// empty.
+	ListTitlesForClassifyDrift(ctx context.Context, arg ListTitlesForClassifyDriftParams) ([]ListTitlesForClassifyDriftRow, error)
 	// The owner's per-CV panel: every traced link of one CV with what is known about it. Owner-scoped.
 	//
 	// Clicks flagged as automated are counted separately rather than filtered out, so the UI's "include
@@ -4272,12 +4591,20 @@ type Querier interface {
 	// Mark a pending submission rejected with an optional reason, recording the deciding
 	// moderator. Scoped to status='pending' (see MarkSubmissionApproved). No job is created.
 	MarkSubmissionRejected(ctx context.Context, arg MarkSubmissionRejectedParams) (JobSubmission, error)
+	// Bulk-reject every given id still pending, recording the same moderator and reason on
+	// each — the sibling half of RejectAndBlockHost. Scoped to status='pending' like the
+	// single-row Mark* queries, so a row already decided by the time this runs is left alone.
+	MarkSubmissionsRejectedByIDs(ctx context.Context, arg MarkSubmissionsRejectedByIDsParams) ([]JobSubmission, error)
 	// Completion: the post was processed (jobs written, or no vacancy found). Run in
 	// the same transaction as the extracted jobs' UpsertJob calls.
 	MarkTelegramPostExtracted(ctx context.Context, arg MarkTelegramPostExtractedParams) error
 	// Cursor write: mark a rotated file applied. Idempotent — a concurrent/rerun mark
 	// is a no-op, so the file is never double-applied.
 	MarkViewLogFileProcessed(ctx context.Context, arg MarkViewLogFileProcessedParams) error
+	// The upper bound of the id-range walk above. MAX over a source is an index scan on
+	// (source, external_id)'s table, not a count of matching rows, so it is cheap even when the
+	// source holds millions.
+	MaxJobIDForSource(ctx context.Context, source string) (int64, error)
 	// Fold ONE requirement's outcome into the run report: replace the entry whose requirement
 	// matches case- and whitespace-insensitively, or append when none does. Done as one UPDATE
 	// expression rather than a read-modify-write from Go, because a read-modify-write has no lock
@@ -4780,6 +5107,10 @@ type Querier interface {
 	RecordBoardSuccess(ctx context.Context, arg RecordBoardSuccessParams) error
 	// Closes out one (user, campaign) whether or not the send worked.
 	RecordBroadcastEmail(ctx context.Context, arg RecordBroadcastEmailParams) error
+	// Record that this company page was announced to this engine. Idempotent, for the same
+	// reason its job sibling is: the row is what stops a re-run after a partial failure from
+	// spending a bounded budget twice.
+	RecordCompanySearchPing(ctx context.Context, arg RecordCompanySearchPingParams) error
 	// Ledger write, one row per posting in the published list. Written only AFTER a
 	// channel has published; a dry run never reaches here. ON CONFLICT DO NOTHING so a
 	// retry that races itself cannot fail the run over a row that already says what we
@@ -4836,6 +5167,11 @@ type Querier interface {
 	// for the reason above: a list that only grows cannot express a scope the candidate took
 	// away. An empty list means the exchange did not say, and keeps what we held.
 	RecordGrantScopes(ctx context.Context, arg RecordGrantScopesParams) error
+	// Record that this posting was announced to this engine, for this event. ON CONFLICT DO
+	// NOTHING keeps a re-run after a partial failure from double-spending a budget that is
+	// counted in hundreds per day: the row is what makes the send idempotent, so it is
+	// written per URL as each send succeeds rather than once for the batch at the end.
+	RecordJobSearchPing(ctx context.Context, arg RecordJobSearchPingParams) error
 	// Record (or refresh) a user's view of a job. Idempotent on (user_id, job_id):
 	// the first view creates the row, a repeat view touches viewed_at. Returns the
 	// row so the caller learns the current applied_at in the same round-trip. This
@@ -5297,6 +5633,17 @@ type Querier interface {
 	RestoreEmail(ctx context.Context, arg RestoreEmailParams) (int64, error)
 	// Retire a live (pending or active) board without deleting its row.
 	RetireBoard(ctx context.Context, arg RetireBoardParams) (int64, error)
+	// Retire EVERY live board of one provider in one statement.
+	//
+	// Separate from RetireBoard rather than looping it: this is used when the provider itself is
+	// withdrawn, not when a board is found dead, and the populations differ by three orders of
+	// magnitude — apploi alone carries 5833 boards (migration 0165). A loop would be 5833 round
+	// trips to say one thing.
+	//
+	// Deliberately does NOT touch 'rejected': a rejected board failed insert-time validation and
+	// never became live, so calling it retired would erase why it is there. Idempotent — the
+	// status predicate means a re-run matches nothing.
+	RetireProviderBoards(ctx context.Context, provider string) (int64, error)
 	// Withdraw the caller's own live report. Guarded on retracted_at IS NULL so a second
 	// withdrawal returns no row (404) rather than silently restamping the timestamp, and
 	// so the row is never deleted.
@@ -5634,6 +5981,12 @@ type Querier interface {
 	// (jobview.FromDomain). The column stays the single source; the blob holds only what
 	// the model itself said.
 	SetJobEnrichment(ctx context.Context, arg SetJobEnrichmentParams) error
+	// Write one row's countries and regions, for cmd/backfill-remote-region-restriction.
+	//
+	// The IS DISTINCT FROM guard makes the pass idempotent, the same way SetJobWorkMode's
+	// does: a row already carrying the recomputed values is not rewritten, so a re-run writes
+	// nothing and stopping mid-way costs nothing to resume.
+	SetJobGeography(ctx context.Context, arg SetJobGeographyParams) (int64, error)
 	// Publish a list: set its public slug, owner-scoped, bumping updated_at. The service
 	// decides the slug (keeping an existing one on re-share, minting a fresh one
 	// otherwise), so this sets it verbatim; a collision with another list's slug raises a
@@ -5683,6 +6036,10 @@ type Querier interface {
 	// the whole reason it is separate — before migration 0135 a hand-set value lived in the
 	// column the Stripe sync overwrites, and the next webhook silently undid it.
 	SetProUntilGranted(ctx context.Context, arg SetProUntilGrantedParams) error
+	// Claims the welcome send for one account. Guarded by IS NULL so a concurrent or repeated
+	// run never re-sends: 0 rows affected means somebody already claimed it, which the caller
+	// treats as "already welcomed", not as an error.
+	SetProWelcomeSent(ctx context.Context, id int64) (int64, error)
 	// How far the APP STORE or GOOGLE PLAY subscription reaches, for every tier. Written only by
 	// the RevenueCat sync, and only over its own source columns, for the same reason the Stripe
 	// setter is confined to its own: neither provider may answer for a plan it did not sell.
@@ -5841,6 +6198,9 @@ type Querier interface {
 	// 90-day interval (rather than `>=` against 89) reads the same as "trailing 90
 	// days" everywhere else this feature says it.
 	SiteStatusHistory(ctx context.Context) ([]SiteStatusHistoryRow, error)
+	// The id span cmd/report-skill-gaps walks. Same MIN/MAX-over-the-primary-key shape as
+	// RequirementsDerivedBackfillBounds — two index probes, deliberately unfiltered.
+	SkillGapReportBounds(ctx context.Context) (SkillGapReportBoundsRow, error)
 	// ---------------------------------------------------------------------------
 	// Skill demand history (the personal GET /me/market-pulse read)
 	// ---------------------------------------------------------------------------
@@ -6319,6 +6679,15 @@ type Querier interface {
 	// The CHECK on the table still decides whether the result is legal — disabling without a
 	// reason is refused here exactly as it is in psql, which is the point of putting the rule
 	// in the schema.
+	//
+	// The "documented default" arrives as an ARGUMENT, not as a literal. It used to be
+	// `COALESCE(..., 3600)` here, which made this the THIRD place holding one fact -- beside
+	// ingestsched.DefaultCadence and the column's own DEFAULT -- and the three agreed only
+	// because nobody had ever moved one. On 2026-09-16 one moved: DefaultCadence went to 2h for
+	// the reason freehire#2862 measured, and this literal quietly kept handing every newly
+	// written row the hourly ask that had just been shown not to fit. Passing the constants in
+	// leaves the column defaults for hand-written psql only, where the schema test pins them to
+	// the same constants.
 	UpsertIngestSchedule(ctx context.Context, arg UpsertIngestScheduleParams) error
 	// Single atomic write: upsert the company (only when the slug is non-empty,
 	// via the WHERE on the SELECT) and the job together, keeping the "one write =
@@ -6439,8 +6808,9 @@ type Querier interface {
 	UpsertUserJobAnalysis(ctx context.Context, arg UpsertUserJobAnalysisParams) error
 	// Create-or-replace the user's one profile. The PRIMARY KEY (user_id) makes this an
 	// idempotent upsert: first save inserts, later saves overwrite specializations/skills/
-	// seniorities/excluded_skills/location_preferences and bump updated_at. All fields are
-	// already normalized by the service; seniorities and excluded_skills may be empty;
+	// seniorities/excluded_skills/excluded_sources/excluded_companies/location_preferences and
+	// bump updated_at. All fields are already normalized by the service; seniorities,
+	// excluded_skills, excluded_sources and excluded_companies may be empty;
 	// location_preferences is a validated JSONB block or NULL (no preferences).
 	UpsertUserProfile(ctx context.Context, arg UpsertUserProfileParams) (UserProfile, error)
 	// Same write as UpsertUserProfile, guarded on the row's updated_at still matching what the

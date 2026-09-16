@@ -1,36 +1,50 @@
 <script lang="ts">
-  import { Radar } from '@lucide/svelte';
+  import { onMount } from 'svelte';
+  import { Radar, X } from '@lucide/svelte';
   import { resolve } from '$app/paths';
   import { api } from '$lib/api';
-  import { currentUser } from '$lib/auth.svelte';
   import type { TalentNetworkVisibility } from '$lib/types';
+  import { isTalentNetworkMember } from '$lib/talentMembership';
   import { Button, Card } from '$lib/ui';
 
-  // The invitation into the Talent Network, on the profile page.
-  //
-  // It is here because this is where a candidate finishes describing themselves, which is
-  // the moment "be found without applying" is worth offering. The nav entry is the other
-  // way in; the feature previously shipped with neither, which is indistinguishable from
-  // not having shipped.
+  // The invitation into the Talent Network, mounted by the ACCOUNT shell (`my/+layout`)
+  // above whatever section is open — not by Profile's layout, where it used to live.
+  // Being found without applying is not a fact about the page a candidate happens to be
+  // on, and one who never opens Profile never saw the offer at all.
   //
   // Read-only: it states where the candidate stands and links to the control. Joining is
   // a decision, and a decision belongs on the page that explains what it publishes.
-
-  // Hidden entirely outside the beta group, not shown-and-disabled: an invitation into
-  // something you cannot join is worse than no invitation. The real gate is the server's
-  // refusal of the join; this only keeps the offer honest.
-  const beta = $derived(currentUser()?.beta_tester ?? false);
+  //
+  // Dismissal is permanent and local to the browser. That is only safe because the
+  // account navigation carries a Talent Network section of its own now — closing a
+  // banner must never be the same gesture as losing the feature.
+  const DISMISSED_KEY = 'hire.talentInviteDismissed';
 
   let status = $state<'loading' | 'error' | 'ready'>('loading');
+  // Starts hidden, so "not yet read from storage" is never mistaken for "not dismissed".
+  // The `status` gate below happens to cover it today — nothing renders until a network
+  // read resolves, and `onMount` is long done by then — but that is the fetch's
+  // behaviour, not this flag's, and it would stop being true the moment the card gained
+  // anything to show before its data arrives.
+  let dismissed = $state(true);
+
+  onMount(() => {
+    dismissed = localStorage.getItem(DISMISSED_KEY) === '1';
+  });
+
+  function dismiss() {
+    dismissed = true;
+    localStorage.setItem(DISMISSED_KEY, '1');
+  }
+
   let visibility = $state<TalentNetworkVisibility>('off');
   let handle = $state('');
   // See the settings page: membership does not mean a visitor can see them.
   let listed = $state(false);
 
-  const isMember = $derived(visibility !== 'off');
+  const isMember = $derived(isTalentNetworkMember(visibility));
 
   $effect(() => {
-    if (!beta) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -54,7 +68,7 @@
   });
 </script>
 
-{#if beta && status === 'ready'}
+{#if status === 'ready' && !dismissed}
   <Card class="flex flex-wrap items-center justify-between gap-4 p-5">
     <div class="flex min-w-0 items-start gap-3">
       <Radar class="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />
@@ -76,7 +90,7 @@
       </div>
     </div>
 
-    <div class="flex shrink-0 gap-2">
+    <div class="flex shrink-0 items-center gap-2">
       {#if isMember && listed && handle}
         <Button
           variant="ghost"
@@ -90,6 +104,15 @@
       <Button variant={isMember ? 'secondary' : 'primary'} href={resolve('/my/talent-network')}>
         {isMember ? 'Manage' : 'Join'}
       </Button>
+      <button
+        type="button"
+        onclick={dismiss}
+        aria-label="Hide this"
+        title="Hide this"
+        class="-mr-1 rounded-md p-1 text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+      >
+        <X class="size-4" />
+      </button>
     </div>
   </Card>
 {/if}

@@ -122,6 +122,10 @@ func Taxonomy() map[string]Source { return All(nil) }
 // HTTP client across them. Adding a platform is a new adapter plus one line here.
 // A nil client builds the transport-free taxonomy registry — call Taxonomy for that.
 func All(c HTTPClient) map[string]Source {
+	// SEEK, JobStreet and JobsDB share the same frontend/GraphQL infrastructure and our
+	// crawl egresses from one IP, so their detail requests must compete for ONE token bucket.
+	// Two independent pacedSeekPoster calls would silently double the measured safe rate.
+	seekNetworkDetail := pacedSeekPoster(c)
 	registry := reg(
 		NewGreenhouse(c),
 		NewLever(c),
@@ -151,6 +155,7 @@ func All(c HTTPClient) map[string]Source {
 		NewHiBob(c),
 		NewGem(c),
 		NewSuccessFactors(c),
+		NewSelfRecruit(c),
 		// Paced: its per-posting detail fan-out fired ~37k requests in 10 minutes and Teamtailor
 		// 403'd nearly half the fleet (see teamtailorRequestInterval).
 		NewTeamtailor(pacedHTMLGetter(c, teamtailorRequestInterval, teamtailorRequestBurst)),
@@ -181,6 +186,8 @@ func All(c HTTPClient) map[string]Source {
 		NewJazzHR(c),
 		NewWPYoast(c),
 		NewBreezy(c),
+		NewHerp(c),
+		NewHrmos(c),
 		NewJoin(pacedJoinGetter(c)),
 		NewRapyd(c),
 		NewCareerPlug(c),
@@ -216,6 +223,7 @@ func All(c HTTPClient) map[string]Source {
 		NewPageUp(c),
 		NewNeogov(c),
 		NewDeel(c),
+		NewScalis(c),
 		NewVouch(c),
 		NewRecruitingSolutions(c),
 		NewUKG(c),
@@ -260,6 +268,9 @@ func All(c HTTPClient) map[string]Source {
 		NewTopco(c),
 		NewGetmatch(c),
 		NewGetmanfred(c),
+		// Joppy: Spain-only tech board with no search API, walked via its own sitemap directory —
+		// every company's page carries that company's open postings in full, no detail request.
+		NewJoppy(c),
 		NewEchoJobs(c),
 		NewHabrCareer(c),
 		NewGeekjob(c),
@@ -275,22 +286,41 @@ func All(c HTTPClient) map[string]Source {
 		NewCryptocurrencyJobs(c),
 		NewJobspresso(c),
 		NewStartupAndVC(c),
+		// Hacker News "Ask HN: Who is hiring?": the two newest monthly threads, read whole
+		// through the Algolia HN API — one global feed, company per comment.
+		NewHackerNews(c),
 		browserUASource(c, NewFourDayWeek),
 		NewFunctionalWorks(c),
 		NewTheHub(c),
 		NewCompleo(c),
 		NewInstaffo(c),
+		NewTechTree(c),
 		NewGetonbrd(c),
 		NewVagas(c),
 		// GeekHunter: Brazilian tech-recruitment ATS, board = company slug; listing and detail
 		// both come from parsing the page's own schema.org ld+json blocks.
 		NewGeekHunter(c),
+		// Recrutei: Brazilian multi-tenant ATS, board = tenant slug; listing is one POST to the
+		// platform's own internal frontend API, detail comes from the page's ld+json block.
+		NewRecrutei(c),
+		// PyjamaHR: Indian multi-tenant ATS, board = tenant slug; listing and detail are both
+		// plain keyless GETs to the platform's own internal frontend API (api.pyjamahr.com).
+		NewPyjamahr(c),
+		// RecruiterFlow: recruiting-agency board = agency slug; the whole listing is embedded
+		// as a bare JS variable on the page, detail comes from the page's ld+json block.
+		NewRecruiterflow(c),
 		NewMyCareersFuture(c),
 		NewWorkingNomads(c),
 		NewPowerToFly(c),
 		NewHimalayas(c),
 		NewRemotive(c),
 		NewRemotedotcom(c),
+		// wellfound needs no fingerprint-spoofing transport of its own (unlike bayt/gulftalent
+		// below) — its pages sit behind a full Cloudflare JS challenge that only the hosted
+		// Firecrawl tier can pass, wired in firecrawlProviders. Without that credential this
+		// entry still exists (classification/dedup must know about it) but every crawl attempt
+		// simply 403s on the challenge response, the same shape bayt/gulftalent already have.
+		NewWellfound(c),
 		NewRemotli(c),
 		NewLandingJobs(c),
 		NewTheMuse(c),
@@ -304,12 +334,19 @@ func All(c HTTPClient) map[string]Source {
 		NewTyomarkkinatori(c),
 		NewLikeit(c),
 		NewArbeitsagentur(c),
+		// EURES: the EU's cross-border public employment portal, aggregating national PES
+		// and partner-board feeds across ~31 EU/EFTA countries. Board-based (board =
+		// country), aggregator-marked (see eures.go for the confirmed re-listing evidence).
+		NewEures(c),
 		// International single-company adapters (boardless).
 		NewTelegramCareers(c),
 		NewAmazon(c),
 		NewGoogle(c),
 		NewApple(c),
 		NewLumenalta(c),
+		// Staffy: a single recruiting agency's own board, boardless like Lumenalta; both the
+		// listing and detail pages are fully static server-rendered HTML.
+		NewStaffy(c),
 		NewDataArt(c),
 		NewOnstrider(c, os.Getenv("ONSTRIDER_REFERRAL_HANDLE")),
 		NewAlignerr(c, os.Getenv("ALIGNERR_REFERRAL_CODE")),
@@ -335,7 +372,11 @@ func All(c HTTPClient) map[string]Source {
 		// hydrating descriptions from its GraphQL endpoint. Keyless.
 		// Its GraphQL detail endpoint meters by a per-IP request budget, so only that path is
 		// rate-paced; the search listing stays on the bare client.
-		NewSeek(c, pacedSeekPoster(c)),
+		NewSeek(c, seekNetworkDetail),
+		NewJobStreet(c, seekNetworkDetail),
+		// Japan Dev: curated Japan technology aggregator. One public sitemap lists posting URLs;
+		// detail pages carry structured Nuxt SSR state and official ATS apply links when available.
+		NewJapanDev(c),
 		// EDJOIN: California's K-12 education board, multi-company aggregator enumerated by
 		// job type (board) over one central index, hydrating bodies from each posting page's
 		// schema.org block. The board is a job type and not a district on purpose — see
@@ -427,6 +468,17 @@ func All(c HTTPClient) map[string]Source {
 	registry["aijobs"] = cookieSessionSource[aijobsHTTP](c, func(h aijobsHTTP) Source {
 		return NewAijobs(h, aijobsMaxNewPerRun)
 	})
+	// HumanBit's listing page is a single, unpaginated ~5.6 MB payload that measured ~18s to
+	// fetch — past the standard 15s client timeout, which made every crawl fail
+	// intermittently with "context deadline exceeded" in production. Swap in the
+	// long-timeout transport only when there is a real client to serve; the taxonomy path
+	// (c == nil, e.g. FilterableProviders) must stay transport-free, per the invariant
+	// Taxonomy documents.
+	if c == nil {
+		registry["humanbit"] = NewHumanBit(nil)
+	} else {
+		registry["humanbit"] = NewHumanBit(NewLongTimeoutClient())
+	}
 	// meta/uber/gusto are NOT served by the shared client: Meta's edge 400s the default Go
 	// TLS+HTTP/2 fingerprint and Uber's and Gusto's Cloudflare edges challenge it, so all three
 	// need the shared Chrome-fingerprint transport (fingerprintHTTP, also used by the

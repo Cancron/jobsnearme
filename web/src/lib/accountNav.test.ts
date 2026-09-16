@@ -50,15 +50,18 @@ describe('accountNav config', () => {
 });
 
 describe('visibleAccountNav', () => {
-  // The Talent Network is beta-only while it settles. This is an affordance, not the
-  // gate — the server refuses a JOIN from outside the group — but an entry left visible
-  // would offer a page whose only button answers 403.
-  it('hides the Talent Network outside the beta group', () => {
-    const forEveryone = visibleAccountNav(false, false).map((i) => i.href);
-    const forBeta = visibleAccountNav(false, true).map((i) => i.href);
-
-    expect(forEveryone).not.toContain('/my/talent-network');
-    expect(forBeta).toContain('/my/talent-network');
+  // The Talent Network was reachable only from the profile layout's invitation card, and
+  // that card is dismissible now — so without a section of its own, closing a banner and
+  // losing the feature would be the same gesture. Open to everyone, beta or not.
+  it('offers the Talent Network to everyone, gate-free', () => {
+    for (const [mod, beta] of [
+      [false, false],
+      [true, false],
+      [false, true],
+      [true, true],
+    ] as const) {
+      expect(visibleAccountNav(mod, beta).map((i) => i.href)).toContain('/my/talent-network');
+    }
   });
 
   it('shows the Agent, Inbox and Tailor sections to a plain user', () => {

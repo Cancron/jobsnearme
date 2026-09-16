@@ -5,6 +5,7 @@ import (
 	"errors"
 	"log"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/gofiber/fiber/v2"
@@ -83,12 +84,12 @@ type searcher interface {
 	Search(ctx context.Context, p search.SearchParams) (search.SearchResult, error)
 }
 
-// maxSearchWindow bounds how deep search pagination may reach (offset+limit). It
-// is the explicit pagination guard, decoupled from the index's maxTotalHits
-// (which now only sets how high the reported total may count): the total can read
-// the true filtered count while deep offset paging — the expensive part — stays
-// refused. ~500 pages at the default limit is far beyond any real browsing.
-const maxSearchWindow = 10000
+// The pagination guard the search endpoints apply is maxPageWindow (handler.go), which
+// they no longer own: it used to be a `maxSearchWindow` const here, and the Postgres-backed
+// lists carried no equivalent at all — the asymmetry the 2026-09-14 deep-offset outage went
+// through. It stays decoupled from the index's maxTotalHits (which now only sets how high
+// the reported total may count), so the total can read the true filtered count while deep
+// offset paging — the expensive part — stays refused.
 
 // searchParams are the query params the search endpoints read themselves rather
 // than hand to the filter: the query text, the sort directive and the pagination
@@ -206,9 +207,9 @@ func (h *searchHandlers) runJobSearch(c *fiber.Ctx) (search.SearchResult, int, i
 		return search.SearchResult{}, 0, 0, nil, fiber.NewError(fiber.StatusServiceUnavailable, "search is not available")
 	}
 
-	limit, offset := pageParams(c)
-	if offset+limit > maxSearchWindow {
-		return search.SearchResult{}, 0, 0, nil, fiber.NewError(fiber.StatusBadRequest, "pagination too deep")
+	limit, offset, err := pageParams(c)
+	if err != nil {
+		return search.SearchResult{}, 0, 0, nil, err
 	}
 
 	vector := h.matchVector(c)
@@ -271,7 +272,7 @@ func (h *searchHandlers) runJobSearch(c *fiber.Ctx) (search.SearchResult, int, i
 // The key is the same normalisation the builder applies to mined titles, so a typed
 // query and the title it names land on one row.
 func (h *searchHandlers) recordQuery(raw string) {
-	q := suggest.Title(raw)
+	q := demandKey(raw)
 	if !suggest.Recordable(q) || h.queries == nil {
 		return
 	}
@@ -282,6 +283,19 @@ func (h *searchHandlers) recordQuery(raw string) {
 			log.Printf("search: record query: %v", err)
 		}
 	}()
+}
+
+// demandKey normalises a raw `q` into the same key suggest.Title gives a mined
+// posting title. A title suggestion's click sends its query wrapped in a matching
+// pair of `"` (see the search-suggestions spec) — that wrapper is Meilisearch's own
+// quoting syntax, not part of the phrase, so it is stripped before normalising.
+// Anything else — no quotes, or a quote at only one end — is not that shape and is
+// left alone: guessing would rewrite text nobody asked to rewrite.
+func demandKey(raw string) string {
+	if len(raw) >= 2 && strings.HasPrefix(raw, `"`) && strings.HasSuffix(raw, `"`) {
+		raw = raw[1 : len(raw)-1]
+	}
+	return suggest.Title(raw)
 }
 
 // searchSort builds the Meilisearch sort directive from ?sort=<field>&order=<dir>.

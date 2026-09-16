@@ -444,6 +444,10 @@ export interface User {
   // stand-in while the wizard was about the CV and stopped being one the moment it grew
   // questions a CV cannot answer.
   onboarding_completed_at: string | null;
+  // The caller's resolved plan tier, same values as PlanState['plan']. Rides along on
+  // this same response so the header's tier badge needs no second request to
+  // GET /api/v1/me/plan just to learn what api.myPlan() would answer anyway.
+  tier: 'free' | 'pro' | 'ultra';
 }
 
 /** A crowdsourced board contribution: a job link a user pasted for a company board we do
@@ -1044,11 +1048,22 @@ export interface UserGrowthPoint {
  *  jobs viewed, and what people build on top — CVs uploaded and tailored, matches
  *  analyzed, inboxes connected, searches saved. `inboxes_connected` sums live Gmail
  *  grants and claimed hosted mailboxes, so a user holding both counts twice.
- *  Aggregate-only — no per-user or row-level field. */
+ *  Aggregate-only — no per-user or row-level field.
+ *
+ *  `viewed` is the ONLY field here that is not a signed-in count: it is bot-filtered
+ *  job-page opens by every visitor, signed in or not, so it is orders of magnitude
+ *  larger than its neighbours by construction. Whatever renders it must say so —
+ *  presenting the eight side by side as one population reads as a broken ratio.
+ *
+ *  It is also the only one that is not all-time. `viewed_since` is the first day the
+ *  underlying column carries a count (null before the first rollup): the column shipped
+ *  without a backfill and the nginx history to recover is past logrotate's window, so
+ *  render the two together — the number alone reads as the life of the site. */
 export interface EngagementStats {
   saved: number;
   applied: number;
   viewed: number;
+  viewed_since: string | null;
   cvs_uploaded: number;
   cvs_tailored: number;
   match_analyses: number;
@@ -1120,6 +1135,13 @@ interface SiteHealth {
   status: HealthStatus;
   database: 'up' | 'down';
   error_rate: number;
+  /** Fraction of the database connection pool held at once, 0..1. Answers a different
+   *  question from `error_rate`: that one describes requests that FINISHED, this one
+   *  describes requests that cannot start. Reported, never judged: it is a single
+   *  instant, and the live pool touches its ceiling in ordinary bursts, so `status`
+   *  above does not read it. Judging it needs an average over minutes, which the
+   *  Grafana rule does and this page cannot. */
+  pool_pressure: number;
   window_minutes: number;
   history: SiteHistoryEntry[];
 }
@@ -1132,6 +1154,54 @@ export interface IngestStatus {
   generated_at: string;
   providers: ProviderHealth[];
   site: SiteHealth;
+}
+
+/** What the catalogue currently holds under one source, as measured by the daily
+ *  snapshot. Two counts on purpose: `open` is every open posting, duplicates and all,
+ *  and is the denominator the overlap figures are arithmetic on; `browsable` is the
+ *  de-duplicated count the search index holds, which is what /jobs?source=… actually
+ *  shows and therefore what the page displays.
+ *
+ *  `browsable` is null when the search index could not be measured — NOT zero. A zero
+ *  meaning "we could not measure this" must never be rendered as "this source has no
+ *  jobs".
+ *
+ *  `ats_matched`/`ats_unmatched` are present for aggregators only. "Unmatched" means the
+ *  dedup pass found no first-party ATS posting to pair a posting with — the absence of
+ *  evidence, not evidence of absence. Do not render it as "exclusive". */
+interface SourceJobs {
+  open: number;
+  browsable: number | null;
+  ats_matched?: number;
+  ats_unmatched?: number;
+  measured_at: string;
+}
+
+/** One source's crawl-fleet health, derived exactly as the /status page derives it.
+ *  Absent on a source with no board_health record at all — the normal state for a source
+ *  that is not a crawl adapter. */
+interface SourceHealth {
+  status: HealthStatus;
+  total_boards: number;
+  healthy_boards: number;
+  cooled_boards: number;
+  last_run: string | null;
+  last_success: string | null;
+  ingested_total: number;
+}
+
+/** One entry on the public source catalogue. `jobs` is null when the snapshot has never
+ *  covered this source; `health` is null when it has no crawl-health record. Both absences
+ *  are answers, not missing data.
+ *
+ *  No logo field: a source's brand mark is resolved from its DISPLAY NAME client-side (see
+ *  sourceLogoUrl). A host was tried and shipped the wrong brand — an ATS posting's URL is
+ *  often on the employer's own domain. */
+export interface SourceEntry {
+  source: string;
+  kind: ProviderKind;
+  jobs: SourceJobs | null;
+  health: SourceHealth | null;
 }
 
 /** An API key as returned by the management endpoints — metadata only; the
@@ -1275,6 +1345,10 @@ export interface UserProfile {
   seniorities: string[];
   /** Canonical skill tokens the user wants to avoid; seeded into the jobs filter's skills exclude set by "Apply my profile". Empty when the user excludes nothing. */
   excluded_skills: string[];
+  /** `jobs.source` values (the crawl adapter/board) the user wants to avoid. Empty when the user excludes none. */
+  excluded_sources: string[];
+  /** Company slugs the user wants to avoid. Empty when the user excludes none. */
+  excluded_companies: string[];
   location_preferences: LocationPreferences | null;
   /** Null when nothing was derived (no CV, no current structure, or a location the
    *  dictionary could not resolve). Used to pre-fill "where you're based" for a user who
@@ -1636,6 +1710,9 @@ export interface Mentor {
    *  `/api/v1/mentors/{slug}/photo`. Off by default; render the avatar only when this
    *  is true, and hide it on a load error rather than showing a broken-image icon. */
   show_photo: boolean;
+  /** One of the platform's seniority levels, or absent when the mentor left it unset —
+   *  never an empty string on the wire (the backend omits the key entirely). */
+  seniority?: string;
 }
 
 /** One offerable hour, carrying three views of the same moment on purpose.
@@ -1723,6 +1800,25 @@ export interface MentorAvailabilityRule {
   closure: boolean;
 }
 
+/** One labeled span of a mentor's own resolved calendar — booked, busy, free or closed —
+ *  computed the same way the public slot engine decides what a seeker may book.
+ *
+ *  `starts_at`/`ends_at` are absolute instants in UTC; render them in the mentor's own
+ *  zone (`MentorCalendar.timezone`), not the viewer's — this is a self-view, and the
+ *  mentor's own weekly-hours editor already assumes their own zone. */
+export interface MentorCalendarInterval {
+  starts_at: string;
+  ends_at: string;
+  status: 'booked' | 'busy' | 'free' | 'closed';
+}
+
+/** The owner's own resolved calendar for one month: a gapless, non-overlapping partition
+ *  of the requested window. `timezone` is the mentor's own IANA zone. */
+export interface MentorCalendar {
+  intervals: MentorCalendarInterval[];
+  timezone: string;
+}
+
 /** The mentor's own profile: the public shape plus what only its owner sees. */
 export interface OwnMentorProfile extends Mentor {
   status: string;
@@ -1774,6 +1870,10 @@ export interface MentorProfileInput {
   /** The mentor's own opt-in to publish their account's CV headshot. Off by default —
    *  see `Mentor.show_photo`. */
   show_photo: boolean;
+  /** One of the platform's seniority levels, or '' to leave it unset — see
+   *  `Mentor.seniority`. Always a string here, unlike the optional wire field, so the
+   *  form has a plain value to bind a `<select>` to. */
+  seniority: string;
 }
 
 /** Best-effort, per-field prefill for the mentor-profile CREATE form, composed from the

@@ -221,6 +221,22 @@ func publicReadRoutes(t *testing.T, throttler ratelimit.Throttler) (map[string]*
 		// reached past its limiter nil-dereferences into recover, which is the
 		// assertion, rather than needing a real catalogue behind it.
 		"talentCatalogHandlers": mount((&talentCatalogHandlers{}).register),
+		// The public company-feedback list. It was registered with no limiter at all
+		// until the deep-offset change, which is exactly the omission
+		// TestPublicReadLimiters_EveryMountingRegisterIsDriven cannot catch on its own:
+		// that guard checks a register that DOES mount one is driven here, so a register
+		// mounting none is invisible to it. Driving it now is what keeps the key honest.
+		"companyFeedbackHandlers": mount((&companyFeedbackHandlers{}).registerPublic),
+		// The four sitemap reads. Like the company-feedback list they were registered
+		// with no limiter at all until the deep-offset change — and unlike it they were
+		// invisible to the guard above, which only checks that a register mounting a
+		// limiter is driven here and so cannot see one mounting none.
+		"sitemapHandlers": mount((&sitemapHandlers{}).register),
+		// The OJCP read surface. It shares the agent-search budget rather than the
+		// browsing one, because its calls cost what /agent/jobs/search costs — and the
+		// OJCP manifest DECLARES that figure, which the spec makes binding: a limit
+		// advertised and not enforced breaks a MUST.
+		"ojcpHandlers": mount((&ojcpHandlers{}).register),
 	}, iss
 }
 

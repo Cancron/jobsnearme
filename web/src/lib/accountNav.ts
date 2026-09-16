@@ -31,6 +31,11 @@ export const accountNav = [
   // signed-in user (the plan meters the AI spend). Named after what the section is FOR — a CV
   // here is always aimed at one posting, and "CV builder" described the tool it grew out of.
   { href: '/my/cvs', label: 'Tailor' },
+  // Being found instead of applying: the anonymous public catalogue's own settings page.
+  // It used to be reachable ONLY from the profile layout's invitation card, which made it
+  // invisible to anyone who never opened Profile — and that card is dismissible now, so
+  // this entry is what keeps closing a banner from meaning losing the feature.
+  { href: '/my/talent-network', label: 'Talent Network' },
   // Employee referrals: request a referral, offer to refer (moderated), and — for
   // referrers — manage incoming requests. Open to every signed-in user.
   { href: '/my/referrals', label: 'Referrals' },
@@ -43,15 +48,6 @@ export const accountNav = [
   // section that opens on an empty directory reads as a broken feature rather than a new
   // one. Drop the flag once there are mentors to show.
   { href: '/my/mentorship', label: 'Mentorship', betaOnly: true },
-  // Talent Network membership: appear in the public, anonymised catalogue recruiters
-  // browse. One toggle. It sits in the nav because the page owns the ONLY control that
-  // puts somebody in the catalogue — the feature previously shipped with a working page
-  // and no way to reach it, which is indistinguishable from not having shipped.
-  //
-  // `betaOnly` while the feature settles. Hiding the entry is an affordance, not the
-  // gate: the server refuses a JOIN from outside the group, which is what actually keeps
-  // the catalogue to the beta population. Leaving is never refused.
-  { href: '/my/talent-network', label: 'Talent Network', betaOnly: true },
   // The notification center: delivery history, saved-search alerts, and the
   // account-level reminder/nudge settings, as three tabs of one section.
   { href: '/my/notifications', label: 'Notifications' },

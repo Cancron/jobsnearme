@@ -241,6 +241,25 @@ func (q *Queries) CanonicalJobForRole(ctx context.Context, arg CanonicalJobForRo
 	return i, err
 }
 
+const classifyDriftReportBounds = `-- name: ClassifyDriftReportBounds :one
+SELECT COALESCE(MIN(id), 0)::bigint AS min_id,
+       COALESCE(MAX(id), 0)::bigint AS max_id
+FROM jobs
+`
+
+type ClassifyDriftReportBoundsRow struct {
+	MinID int64 `json:"min_id"`
+	MaxID int64 `json:"max_id"`
+}
+
+// The id span cmd/report-classify-drift walks. Same shape as SkillGapReportBounds.
+func (q *Queries) ClassifyDriftReportBounds(ctx context.Context) (ClassifyDriftReportBoundsRow, error) {
+	row := q.db.QueryRow(ctx, classifyDriftReportBounds)
+	var i ClassifyDriftReportBoundsRow
+	err := row.Scan(&i.MinID, &i.MaxID)
+	return i, err
+}
+
 const closeChronicBoardJobs = `-- name: CloseChronicBoardJobs :one
 WITH closed AS (
     UPDATE jobs
@@ -532,6 +551,54 @@ type CloseJobBySourceExternalIDParams struct {
 // upsert of the same (source, external_id) reopens it if the posting reappears.
 func (q *Queries) CloseJobBySourceExternalID(ctx context.Context, arg CloseJobBySourceExternalIDParams) (int64, error) {
 	row := q.db.QueryRow(ctx, closeJobBySourceExternalID, arg.Source, arg.ExternalID)
+	var count int64
+	err := row.Scan(&count)
+	return count, err
+}
+
+const closeMisattributedSourceJobs = `-- name: CloseMisattributedSourceJobs :one
+WITH closed AS (
+    UPDATE jobs
+    SET closed_at     = now(),
+        closed_reason = 'source_misattributed',
+        updated_at    = now()
+    WHERE closed_at IS NULL
+      AND source = $1
+      AND id >= $2
+      AND id < $3
+    RETURNING id
+)
+SELECT count(*) FROM closed
+`
+
+type CloseMisattributedSourceJobsParams struct {
+	Source string `json:"source"`
+	FromID int64  `json:"from_id"`
+	ToID   int64  `json:"to_id"`
+}
+
+// Closes one id-range chunk of a source whose stored rows carry an employer we now know is
+// wrong and cannot repair in place (see migration 0165 for the case that forced the label).
+//
+// Chunked over an id RANGE rather than a keyset over matching rows: the affected set is the
+// whole of one source, the id sequence runs far ahead of the live row count, and a range walk
+// lets the caller resume at a printed cursor after an interruption. Idempotent — `closed_at IS
+// NULL` means a re-run over a chunk already done writes nothing, so stopping mid-way is free.
+//
+// NO search_delete_outbox CTE, unlike every other Close* query in this file, and that is the
+// one thing to think twice about before copying this. The others close tens to thousands of
+// rows, where riding the enqueue on the UPDATE is both correct and cheap. This closes a source
+// whole — 1.47M rows for apploi against a deletion queue whose ordinary depth is ~7k — and
+// Meilisearch runs ONE serial task queue, so a wave that size would sit in front of the
+// scheduled rebuild and the incremental pushes for as long as it took to drain. cmd/merge-
+// companies already made this trade and documents it ("Do NOT reindex afterwards... the
+// scheduled freehire-reindexw picks it up"): the rebuild reads open rows from Postgres, so a
+// closed row simply is not in the next index. The cost is that the postings stay searchable
+// until that rebuild — hours, not days — which is the right price for not blocking it.
+//
+// :one rather than :execrows because the CTE moves the row count out of the command tag.
+func (q *Queries) CloseMisattributedSourceJobs(ctx context.Context, arg CloseMisattributedSourceJobsParams) (int64, error) {
+	row := q.db.QueryRow(ctx, closeMisattributedSourceJobs, arg.Source, arg.FromID, arg.ToID)
 	var count int64
 	err := row.Scan(&count)
 	return count, err
@@ -2295,6 +2362,53 @@ func (q *Queries) JobDescriptionsByIDs(ctx context.Context, ids []int64) ([]JobD
 	return items, nil
 }
 
+const jobsForGeographyRecheckByIDs = `-- name: JobsForGeographyRecheckByIDs :many
+SELECT id, title, location, description, countries, regions FROM jobs
+WHERE id = ANY($1::bigint[])
+`
+
+type JobsForGeographyRecheckByIDsRow struct {
+	ID          int64    `json:"id"`
+	Title       string   `json:"title"`
+	Location    string   `json:"location"`
+	Description string   `json:"description"`
+	Countries   []string `json:"countries"`
+	Regions     []string `json:"regions"`
+}
+
+// Title, location, description and the currently-stored countries/regions for a named set
+// of ids, for cmd/backfill-remote-region-restriction.
+//
+// Ids come from a Meilisearch query for the same reason JobDescriptionsByIDs's do: a WHERE
+// over `description` de-TOASTs the column for every row it examines, and the search index
+// already holds the text.
+func (q *Queries) JobsForGeographyRecheckByIDs(ctx context.Context, ids []int64) ([]JobsForGeographyRecheckByIDsRow, error) {
+	rows, err := q.db.Query(ctx, jobsForGeographyRecheckByIDs, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []JobsForGeographyRecheckByIDsRow{}
+	for rows.Next() {
+		var i JobsForGeographyRecheckByIDsRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.Title,
+			&i.Location,
+			&i.Description,
+			&i.Countries,
+			&i.Regions,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const jobsForWorkModeRecheckByIDs = `-- name: JobsForWorkModeRecheckByIDs :many
 SELECT id, location, description, work_mode FROM jobs
 WHERE id = ANY($1::bigint[])
@@ -2532,6 +2646,76 @@ func (q *Queries) ListJobIDsUpdatedAfter(ctx context.Context, arg ListJobIDsUpda
 			return nil, err
 		}
 		items = append(items, id)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listJobSkillsForGapReport = `-- name: ListJobSkillsForGapReport :many
+SELECT j.id, s.skill::text AS skill
+FROM jobs j
+CROSS JOIN LATERAL jsonb_array_elements_text(
+    CASE WHEN jsonb_typeof(j.enrichment -> 'skills') = 'array'
+         THEN j.enrichment -> 'skills'
+         ELSE '[]'::jsonb
+    END
+) AS s(skill)
+WHERE j.id >= $1 AND j.id < $2
+  AND j.enriched_at IS NOT NULL
+ORDER BY j.id
+LIMIT $3
+`
+
+type ListJobSkillsForGapReportParams struct {
+	FromID   int64 `json:"from_id"`
+	ToID     int64 `json:"to_id"`
+	RowLimit int32 `json:"row_limit"`
+}
+
+type ListJobSkillsForGapReportRow struct {
+	ID    int64  `json:"id"`
+	Skill string `json:"skill"`
+}
+
+// One chunk of the skill-gap report: every (job id, raw skill phrase) pair LLM
+// enrichment recorded, for jobs in an id range.
+//
+// The CASE inside the LATERAL call keeps the query safe regardless of what the
+// query planner decides to do: jsonb_array_elements_text errors on a non-array JSON
+// value, and this call does not rely on a later WHERE predicate being pushed down
+// ahead of it to avoid that — substituting '[]'::jsonb for anything that is not a
+// JSON array (enrichment.skills absent, enrichment itself an empty object, or
+// defensively some other JSON shape) makes the call total on its own: it always
+// sees an array, and a job with no skills array simply contributes zero rows.
+//
+// The LIMIT bounds how many (id, skill) pairs one statement returns, not how many
+// jobs it reads. Unlike ListJobsForRequirementsBackfill's one-row-per-job cap, this
+// is a one-row-per-(job, skill) LATERAL expansion, so the LIMIT is not guaranteed to
+// land on a job-id boundary — the caller (cmd/report-skill-gaps) accounts for that:
+// when a chunk comes back full, it holds back the last id's rows and resumes AT
+// that id rather than past it, so a job's skill list is never read half-counted.
+//
+// enriched_at IS NOT NULL, not `enrichment IS NOT NULL`: jobs.enrichment defaults to
+// '{}'::jsonb NOT NULL (migration 0001), so a job that has never been enriched still
+// has a non-NULL enrichment column — enriched_at is the real "this job has actually
+// been enriched" signal. The CASE above already makes an unenriched row contribute
+// zero rows on its own (an empty object has no 'skills' array), so this filter is a
+// cheaper way to skip most of the table rather than a correctness requirement.
+func (q *Queries) ListJobSkillsForGapReport(ctx context.Context, arg ListJobSkillsForGapReportParams) ([]ListJobSkillsForGapReportRow, error) {
+	rows, err := q.db.Query(ctx, listJobSkillsForGapReport, arg.FromID, arg.ToID, arg.RowLimit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListJobSkillsForGapReportRow{}
+	for rows.Next() {
+		var i ListJobSkillsForGapReportRow
+		if err := rows.Scan(&i.ID, &i.Skill); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
 	}
 	if err := rows.Err(); err != nil {
 		return nil, err
@@ -3137,6 +3321,83 @@ func (q *Queries) ListJobsUpdatedAfter(ctx context.Context, arg ListJobsUpdatedA
 	return items, nil
 }
 
+const listTitlesForClassifyDrift = `-- name: ListTitlesForClassifyDrift :many
+SELECT title,
+       count(*)::bigint AS job_count,
+       COALESCE(MIN(enrichment ->> 'seniority'), '')::text AS enrichment_seniority,
+       COALESCE(MIN(enrichment ->> 'category'), '')::text AS enrichment_category
+FROM jobs
+WHERE id >= $1 AND id < $2
+  AND enriched_at IS NOT NULL
+GROUP BY title
+`
+
+type ListTitlesForClassifyDriftParams struct {
+	FromID int64 `json:"from_id"`
+	ToID   int64 `json:"to_id"`
+}
+
+type ListTitlesForClassifyDriftRow struct {
+	Title               string `json:"title"`
+	JobCount            int64  `json:"job_count"`
+	EnrichmentSeniority string `json:"enrichment_seniority"`
+	EnrichmentCategory  string `json:"enrichment_category"`
+}
+
+// One chunk of the classify-drift report: every distinct title among enriched jobs in
+// an id range, with how many jobs in THIS CHUNK carried it and one representative
+// enrichment seniority/category pair (MIN picks an arbitrary but deterministic one —
+// the report only needs a disagreement signal per title, not a distribution across
+// postings that share a title but disagree with each other).
+//
+// Deliberately NO row LIMIT, unlike ListJobSkillsForGapReport: GROUP BY already caps
+// this statement's output at the number of DISTINCT titles in the id range, which is
+// always far below the range's row count, so the id range width alone (the caller's
+// chunk-size knob) is what bounds one statement's cost. A LIMIT on top of an
+// unordered GROUP BY would silently drop titles from the chunk rather than bounding
+// memory, with no id to resume from — aggregated rows carry no single id to resume a
+// partial chunk from, unlike the per-row chunks elsewhere in this file.
+//
+// Grouping happens per chunk, not across the whole table: a title spanning more than
+// one id range comes back as more than one row, one per chunk it appears in. The
+// caller (cmd/report-classify-drift) merges those by title across chunks.
+//
+// enriched_at IS NOT NULL, not `enrichment IS NOT NULL` or is_tech/closed_at:
+// jobs.enrichment defaults to '{}'::jsonb NOT NULL (migration 0001), so a job that
+// has never been enriched still has a non-NULL enrichment column — enriched_at is
+// the real "this job has actually been enriched" signal, the same one
+// EnqueuePendingJobs uses to decide what still needs enriching. A title's dictionary
+// answer is a fact about the title text alone, independent of whether the posting is
+// open or confirmed technical, and filtering on either would hide real drift on
+// titles that skew toward one state. COALESCE to ” rather than leaving the
+// aggregate nullable: a title where every enriched job left a facet unstated is
+// exactly the "no opinion" case dictgap.ClassifyDriftCandidates already treats as
+// empty.
+func (q *Queries) ListTitlesForClassifyDrift(ctx context.Context, arg ListTitlesForClassifyDriftParams) ([]ListTitlesForClassifyDriftRow, error) {
+	rows, err := q.db.Query(ctx, listTitlesForClassifyDrift, arg.FromID, arg.ToID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []ListTitlesForClassifyDriftRow{}
+	for rows.Next() {
+		var i ListTitlesForClassifyDriftRow
+		if err := rows.Scan(
+			&i.Title,
+			&i.JobCount,
+			&i.EnrichmentSeniority,
+			&i.EnrichmentCategory,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const markFuzzyDuplicatesForCompany = `-- name: MarkFuzzyDuplicatesForCompany :one
 WITH candidate AS (
     SELECT unnest($1::bigint[]) AS id
@@ -3342,6 +3603,20 @@ func (q *Queries) MarkLivenessExpired(ctx context.Context, arg MarkLivenessExpir
 	var i MarkLivenessExpiredRow
 	err := row.Scan(&i.ID, &i.LivenessStrikes, &i.ClosedAt)
 	return i, err
+}
+
+const maxJobIDForSource = `-- name: MaxJobIDForSource :one
+SELECT COALESCE(MAX(id), 0)::bigint FROM jobs WHERE source = $1
+`
+
+// The upper bound of the id-range walk above. MAX over a source is an index scan on
+// (source, external_id)'s table, not a count of matching rows, so it is cheap even when the
+// source holds millions.
+func (q *Queries) MaxJobIDForSource(ctx context.Context, source string) (int64, error) {
+	row := q.db.QueryRow(ctx, maxJobIDForSource, source)
+	var column_1 int64
+	err := row.Scan(&column_1)
+	return column_1, err
 }
 
 const orphanAggregatorCompanies = `-- name: OrphanAggregatorCompanies :many
@@ -3973,6 +4248,34 @@ func (q *Queries) SetJobEnrichment(ctx context.Context, arg SetJobEnrichmentPara
 	return err
 }
 
+const setJobGeography = `-- name: SetJobGeography :execrows
+UPDATE jobs
+SET countries = $1::text[],
+    regions   = $2::text[]
+WHERE id = $3
+  AND (countries IS DISTINCT FROM $1::text[]
+       OR regions IS DISTINCT FROM $2::text[])
+`
+
+type SetJobGeographyParams struct {
+	Countries []string `json:"countries"`
+	Regions   []string `json:"regions"`
+	ID        int64    `json:"id"`
+}
+
+// Write one row's countries and regions, for cmd/backfill-remote-region-restriction.
+//
+// The IS DISTINCT FROM guard makes the pass idempotent, the same way SetJobWorkMode's
+// does: a row already carrying the recomputed values is not rewritten, so a re-run writes
+// nothing and stopping mid-way costs nothing to resume.
+func (q *Queries) SetJobGeography(ctx context.Context, arg SetJobGeographyParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setJobGeography, arg.Countries, arg.Regions, arg.ID)
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
+}
+
 const setJobRequiresClearance = `-- name: SetJobRequiresClearance :execrows
 UPDATE jobs
 SET requires_clearance = $1
@@ -4057,6 +4360,26 @@ func (q *Queries) SetJobsRequirementsDerived(ctx context.Context, arg SetJobsReq
 		return 0, err
 	}
 	return result.RowsAffected(), nil
+}
+
+const skillGapReportBounds = `-- name: SkillGapReportBounds :one
+SELECT COALESCE(MIN(id), 0)::bigint AS min_id,
+       COALESCE(MAX(id), 0)::bigint AS max_id
+FROM jobs
+`
+
+type SkillGapReportBoundsRow struct {
+	MinID int64 `json:"min_id"`
+	MaxID int64 `json:"max_id"`
+}
+
+// The id span cmd/report-skill-gaps walks. Same MIN/MAX-over-the-primary-key shape as
+// RequirementsDerivedBackfillBounds — two index probes, deliberately unfiltered.
+func (q *Queries) SkillGapReportBounds(ctx context.Context) (SkillGapReportBoundsRow, error) {
+	row := q.db.QueryRow(ctx, skillGapReportBounds)
+	var i SkillGapReportBoundsRow
+	err := row.Scan(&i.MinID, &i.MaxID)
+	return i, err
 }
 
 const suppressAggregatorDuplicatesForCompanies = `-- name: SuppressAggregatorDuplicatesForCompanies :one

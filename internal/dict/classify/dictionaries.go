@@ -359,7 +359,36 @@ var categoryTable = []aliasEntry{
 	// than guessed, which is the same call `design systems` and bare `engineer` got.
 	{"security guard", "personal_services"},
 	{"armed guard", "personal_services"},
-	{"security", "security"},
+	// Bare "security" is NOT an entry, for the reason the Hungarian block below already
+	// gives about "biztonsági": the word alone is the guard at least as often as the
+	// discipline. Measured over the live catalogue, the single commonest title carrying
+	// it is "Security Officer" (1 102 open postings), followed by "Security Specialist"
+	// (602) and "Night shift security front desk - receptionist" (483) — none of them
+	// technical, and "Security Supervisor" (149) and bare "Security" (91) behind them.
+	// The bare alias sent every one of those to the security category, and because
+	// `security` is in vocab.TechCategories that category is enough for
+	// jobderive.TechEvidence to set is_tech TRUE on its own, ahead of the non-tech
+	// dictionary. So a mall guard was filed as an IT security role — in search, and
+	// (since 2026-09-14) in what cmd/search-ping spends Google's Indexing API quota on.
+	//
+	// Only the qualified forms below, each in the spelling the live sample carries.
+	// "information security" covers the officer/analyst/engineer/manager/specialist
+	// family in one entry, which is how "Chief Information Security Officer" keeps its
+	// category while "Security Officer" loses it. Deliberately ABSENT because they are
+	// genuinely ambiguous rather than merely rare: "security specialist", "security
+	// manager", "security supervisor", "security consultant" — these resolve to no
+	// category and their is_tech falls to unknown, which is the never-guess contract
+	// every dictionary here follows. Same call the bare "analyst" fall-through got.
+	{"security engineer", "security"},
+	{"security architect", "security"},
+	{"security analyst", "security"},
+	{"security operations", "security"},
+	{"security researcher", "security"},
+	{"information security", "security"},
+	{"it security", "security"},
+	{"application security", "security"},
+	{"network security", "security"},
+	{"cloud security", "security"},
 	{"infosec", "security"},
 	{"appsec", "security"},
 	{"cybersecurity", "security"},
@@ -1004,6 +1033,65 @@ var categoryTable = []aliasEntry{
 	{"drupal developer", "software_engineering"},
 	{"magento developer", "software_engineering"},
 	{"shopify developer", "software_engineering"},
+	// The `engineer` spelling of everything above, and the `developer` spelling of the
+	// software titles that only had an `engineer` one. Which noun an employer reaches for
+	// is a habit — "Python Developer" and "Python Engineer" are the same job — and the
+	// list carried only one side of 38 of them.
+	//
+	// The cost of the omission is not a missing facet. A title this dictionary cannot
+	// read gets no category AND no is_tech; EnqueuePendingJobs gates enrichment on
+	// `is_tech IS TRUE`, so the LLM never sees the posting and never supplies the
+	// category the dictionary missed; and search.CategoryUnresolved then hides it
+	// FOREVER rather than until the next enrichment cycle. Measured on prod 2026-09-16:
+	// "senior java engineer" alone was 233 open postings inside that loop.
+	//
+	// TestBothSpellingsOfACraftResolveTheSame derives the pairs from this table, so a
+	// technology added under one noun from now on fails the build rather than quietly
+	// losing its postings.
+	{"python engineer", "software_engineering"},
+	{"java engineer", "software_engineering"},
+	{"javascript engineer", "software_engineering"},
+	{"typescript engineer", "software_engineering"},
+	{".net engineer", "software_engineering"},
+	{"dotnet engineer", "software_engineering"},
+	{"php engineer", "software_engineering"},
+	{"ruby engineer", "software_engineering"},
+	{"rails engineer", "software_engineering"},
+	{"c# engineer", "software_engineering"},
+	{"c++ engineer", "software_engineering"},
+	{"node engineer", "software_engineering"},
+	{"nodejs engineer", "software_engineering"},
+	{"node.js engineer", "software_engineering"},
+	{"abap engineer", "software_engineering"},
+	{"app engineer", "software_engineering"},
+	{"game engineer", "software_engineering"},
+	{"mainframe engineer", "software_engineering"},
+	{"sharepoint engineer", "software_engineering"},
+	{"rpa engineer", "software_engineering"},
+	{"erp engineer", "software_engineering"},
+	{"sap engineer", "software_engineering"},
+	{"mes engineer", "software_engineering"},
+	{"oracle engineer", "software_engineering"},
+	{"wordpress engineer", "software_engineering"},
+	{"drupal engineer", "software_engineering"},
+	{"magento engineer", "software_engineering"},
+	{"shopify engineer", "software_engineering"},
+	{"integration developer", "software_engineering"},
+	{"it developer", "software_engineering"},
+	{"founding developer", "software_engineering"},
+	{"ai-native developer", "software_engineering"},
+	{"ai native developer", "software_engineering"},
+	// "Software Engineering <anything>" was the same omission in one letter: matching is
+	// whole-word, so `software engineer` never occurs inside "Software Engineering
+	// Intern" and that title resolved to nothing while "Software Engineer Intern"
+	// resolved fine — 192 open postings apart on a gerund. It sits AFTER
+	// `engineering manager` far above, so "Software Engineering Manager" stays
+	// management, which is the craft that title actually names.
+	{"software engineering", "software_engineering"},
+	// The `developer` spelling of the two AI entries below, which had only `engineer`.
+	// "AI Developer" alone was 152 open postings resolving to nothing.
+	{"ai developer", "ai_engineering"},
+	{"ml developer", "ml_ai"},
 	// "Member of Technical Staff" reads as software on the same evidence tech.go
 	// cites (294/300 sampled prod postings software or AI). "Founding Engineer"
 	// is the early-startup twin of the same generalist population.
@@ -1120,11 +1208,22 @@ var categoryTable = []aliasEntry{
 	{"power systems engineer", categoryNone},
 	{"electrical systems engineer", categoryNone},
 	{"quality systems engineer", categoryNone},
+	// The same four under `developer`, and for the same reason: the bare
+	// "systems developer" below would otherwise sweep every one of them into software,
+	// exactly as the bare "systems engineer" would have. They are listed even though no
+	// such title is common, because the blindness has to be declared where the sweep
+	// happens — the twin block above is the only thing that makes this one obvious.
+	{"control systems developer", categoryNone},
+	{"power systems developer", categoryNone},
+	{"electrical systems developer", categoryNone},
+	{"quality systems developer", categoryNone},
 	// Then the qualified IT spellings, each naming its own discipline.
 	{"linux systems engineer", "devops"},
 	{"cyber systems engineer", "security"},
 	{"software systems engineer", "software_engineering"},
 	{"it systems engineer", "software_engineering"},
+	{"software systems developer", "software_engineering"},
+	{"it systems developer", "software_engineering"},
 	// The generic technical analyst titles, ~2.2k live postings between them. They were
 	// reached only through the bare "analyst" fall-through, which called them data
 	// analysts; the software_engineering bucket is the same answer this file gives every
@@ -1147,6 +1246,8 @@ var categoryTable = []aliasEntry{
 	// devops would be a guess.
 	{"systems engineer", "software_engineering"},
 	{"system engineer", "software_engineering"},
+	{"systems developer", "software_engineering"},
+	{"system developer", "software_engineering"},
 
 	// Vendor platforms. Naming an enterprise product states the discipline as surely
 	// as naming a language does. "Salesforce Developer" and "SAP Developer" already
@@ -1483,6 +1584,47 @@ var categoryTable = []aliasEntry{
 	{"администратор баз данных", "devops"},
 	{"программист", "software_engineering"},
 	{"разработчик", "software_engineering"},
+
+	// German administration/technician/tester/developer fused compounds. German
+	// joins a title's role words into one unbroken word with no separator, so
+	// none of these can be reached by the spaced English alias they otherwise
+	// match — same doctrine as the "разработчик" bare tokens above, except a
+	// German compound has no internal separator at all, so the alias must be
+	// the fused form itself rather than relying on a hyphen/space boundary
+	// inside it. A hyphen or space BEFORE the compound is still a boundary,
+	// so each bare alias below already reaches an "IT-"/"IT "-prefixed title
+	// without a separate entry.
+	{"systemadministrator", "devops"},
+	{"netzwerkadministrator", "network_engineering"},
+	{"datenbankadministrator", "devops"},
+	{"netzwerktechniker", "network_engineering"},
+	{"softwaretester", "qa"},
+	{"anwendungsentwickler", "software_engineering"},
+
+	// Systemtechniker/Systemelektroniker also name non-IT disciplines in prod
+	// titles ("Systemtechniker Elektrotechnik", "Systemtechniker
+	// Sicherheitstechnik") — the same cross-domain trap the Systems Engineer
+	// family below documents. Only the IT-qualified spellings resolve; the
+	// bare word is deliberately absent, and hyphenated/spaced forms are two
+	// different strings to this matcher so both need their own entry.
+	{"it systemtechniker", "devops"},
+	{"it-systemtechniker", "devops"},
+	{"it systemelektroniker", "devops"},
+	{"it-systemelektroniker", "devops"},
+
+	// Fachinformatiker: the German formal IT-specialist title and
+	// apprenticeship. Unlike Systemtechniker above, it never names a non-IT
+	// role, so the bare word resolves too — but declared LAST, after its two
+	// dominant qualifiers, so a title where the qualifier sits directly next
+	// to the word (no intervening "für"/"/in"/"m/w/d") gets the more precise
+	// category. SPS-Programmierer (PLC/industrial-controller programming) is
+	// deliberately NOT given an entry here — already excluded from a software
+	// category, same reasoning as "CNC Programmer" above.
+	{"fachinformatiker systemintegration", "devops"},
+	{"fachinformatiker für systemintegration", "devops"},
+	{"fachinformatiker anwendungsentwicklung", "software_engineering"},
+	{"fachinformatiker für anwendungsentwicklung", "software_engineering"},
+	{"fachinformatiker", "devops"},
 
 	// The Russian engineering family. Roughly half the industrial residue, and none of
 	// it carried an English alias. The two qualified forms that name ANOTHER discipline

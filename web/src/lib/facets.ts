@@ -177,7 +177,7 @@ function companyLabel(slug: string): string {
 // distribution (which Meili caps at 300 values and returns alphabetically — so
 // popular employers never surface). An empty query returns the most active
 // companies (the endpoint's first page).
-async function companySearch(query: string): Promise<FacetOption[]> {
+export async function companySearch(query: string): Promise<FacetOption[]> {
   const { items } = await api.listCompanies(query, 20, 0);
   return items.map((c) => ({ value: c.slug, label: c.name, count: c.job_count }));
 }
@@ -287,6 +287,22 @@ export function dynamicOptions(param: string, dist: Record<string, number>, sele
   return [...keys]
     .map((value) => ({ value, label: dynamicLabel(param, value), count: reportedCount(dist[value] ?? 0) }))
     .sort((a, b) => (b.count ?? 0) - (a.count ?? 0) || a.label.localeCompare(b.label));
+}
+
+/** Fetch one dynamic facet's live distribution and shape it into sorted typeahead
+ *  options — the shared body behind skillDictionary.ts and sourceDictionary.ts (each
+ *  a thin, differently-named wrapper so callers import "the skills dictionary" /
+ *  "the source dictionary" rather than a bare param string). `opts.facets` narrows the
+ *  request to just this facet, when the caller has no other use for the rest. Best-effort:
+ *  any failure (network, decode) resolves to an empty list rather than throwing, so a
+ *  caller can render "nothing to suggest yet" instead of an error. */
+export async function loadFacetDistribution(param: string, opts?: { facets?: string[] }): Promise<FacetOption[]> {
+  try {
+    const counts = await api.facetCounts(new URLSearchParams(), opts);
+    return dynamicOptions(param, counts.facets?.[param] ?? {}, []);
+  } catch {
+    return [];
+  }
 }
 
 // Role slugs carry an optional seniority grade prefix (senior_backend); the

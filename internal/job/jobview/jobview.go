@@ -48,9 +48,10 @@ type Job struct {
 	//
 	// Countries/Regions are a HYBRID facet, like Cities (see geoFacet): the dictionary
 	// columns win whenever they pinned a place, but an unpinned geography (no country,
-	// and at most the bare-"Remote" "global" bucket) falls back to the LLM's
-	// enrichment.countries/regions — catching a restriction stated only in the prose
-	// ("Remote (SPAIN only)") that the location string never carried.
+	// and at most the "global" bucket an explicit open-anywhere marker resolves to)
+	// falls back to the LLM's enrichment.countries/regions — catching a restriction
+	// stated only in the prose ("Remote (SPAIN only)") that the location string never
+	// carried.
 	//
 	// All four are served top-level and once; the same fields are folded out of the
 	// nested Enrichment to avoid duplication.
@@ -89,10 +90,17 @@ type Job struct {
 	// stored column only ever holds true or NULL, so the key is present exactly when
 	// a requirement was detected. There is no serialized false, because "we detected
 	// nothing" must not reach a reader as "this job needs no clearance".
-	RequiresClearance bool    `json:"requires_clearance,omitempty"`
-	PostedAt          *string `json:"posted_at"`
-	CreatedAt         *string `json:"created_at"`
-	UpdatedAt         *string `json:"updated_at"`
+	RequiresClearance bool `json:"requires_clearance,omitempty"`
+	// AutoApplyAvailable marks a posting whose ATS provider (Source) is one
+	// internal/api/atsapply can currently attempt to fill and submit for (see
+	// AutoApplyProviders) — a best-effort, provider-level eligibility signal,
+	// never a guarantee that a real attempt would succeed. True-or-absent like
+	// RequiresClearance: omitted rather than false, because "not one of the
+	// providers we can drive" must not be read as "checked and ineligible".
+	AutoApplyAvailable bool    `json:"auto_apply_available,omitempty"`
+	PostedAt           *string `json:"posted_at"`
+	CreatedAt          *string `json:"created_at"`
+	UpdatedAt          *string `json:"updated_at"`
 	// LastSeenAt is when a re-crawl last confirmed this posting still live — see
 	// docs/agents/job-lifecycle.md. The SPA uses it to estimate a rolling
 	// JobPosting.validThrough for an open job (seo.ts), since most sources carry
@@ -222,6 +230,7 @@ func FromDomain(j job.Job, x job.Extras) (Job, error) {
 		AIInterviewReports: x.AIInterviewReports,
 		IsTech:             isTechFacet(f.IsTech),
 		RequiresClearance:  f.RequiresClearance != nil && *f.RequiresClearance,
+		AutoApplyAvailable: AutoApplyProviders[f.Source],
 		PostedAt:           rfc3339Ptr(effectivePosted(f.PostedAt, f.CreatedAt, now)),
 		CreatedAt:          rfc3339Ptr(f.CreatedAt),
 		UpdatedAt:          rfc3339Ptr(f.UpdatedAt),
@@ -303,8 +312,9 @@ var nonCityFallback = map[string]struct{}{
 // geoFacet builds the served country/region facets. The deterministic dictionary
 // columns win whenever they pinned a place — a country, or a region more specific
 // than the open-anywhere "global" bucket. Only when the dictionary left geography
-// unpinned (no country, and at most the bare-"Remote" "global" region) does it fall
-// back wholesale to the LLM's enrichment.countries/regions, which read a restriction
+// unpinned (no country, and at most the "global" region an explicit open-anywhere
+// marker resolves to) does it fall back wholesale to the LLM's
+// enrichment.countries/regions, which read a restriction
 // stated only in the prose ("Remote (SPAIN only)") that the location string never
 // carried. This mirrors cityFacet's dict-then-LLM hybrid; a pinned dictionary place
 // is never overridden, so the LLM can only fill the global/unspecified bucket — never

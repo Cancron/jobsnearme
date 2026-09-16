@@ -84,8 +84,9 @@ var blocks = map[string][]string{
 		"worker",
 	},
 	"dict": {
-		"answertopic", "classify", "companyname", "industrytag", "lang", "location", "normalize",
-		"roletype", "skilladjacency", "skillbundle", "skilltag", "slugmint",
+		"answertopic", "certification", "classify", "companyname", "edulevel", "industrytag",
+		"lang", "location", "normalize", "roletype", "skilladjacency", "skillbundle", "skilltag",
+		"slugmint",
 		// skillvec/gen is the registry generator — a main package that reads skilltag
 		// and writes skillvec's source. It never ships in a binary, but it is a package
 		// in the repo, so it needs a block like any other.
@@ -150,8 +151,20 @@ var blocks = map[string][]string{
 		"talentnetwork",
 	},
 	"job": {
-		"applydate", "collections", "ghost", "ghostreport", "job", "jobdedup",
+		"applydate", "collections",
+		// dictgap turns LLM enrichment facts already in the catalogue into ranked
+		// candidate gaps for the deterministic dict/skilltag and dict/classify
+		// dictionaries — a fact about postings' recorded facets, not an AI/enrichment
+		// concern, the same footing reqextract and wikicompany take below.
+		"dictgap",
+		"ghost", "ghostreport", "job", "jobdedup",
 		"jobderive", "jobfacts", "jobhash", "jobreality", "jobview", "liveness",
+		// logodomain builds the company-name-to-domain map the logo proxy consults. It
+		// is here and not in dict because it is not a dictionary: it reads the stored
+		// company website and whatever spellings the catalogue happens to hold, which
+		// are facts about companies and postings — the same footing as wikicompany
+		// below.
+		"logodomain",
 		"outboundurl", "privatejob",
 		// recentfeed polls recent_feed_outbox and groups the batch by
 		// jobhash.NormalizedRoleTitle for the homepage's live "recently added"
@@ -164,6 +177,13 @@ var blocks = map[string][]string{
 		// and returns them in the enrichment contract's shape, so it takes enrich the
 		// way jobview does — the block below it, not the model.
 		"reqextract",
+		// searchping announces a posting's public URL to the external search engines
+		// that accept being told (Google's Indexing API, IndexNow). It is here and not
+		// in search because search is OUR index — Meilisearch, the drain, saved
+		// searches — while this is a fact about a posting's public address and reaches
+		// no further than platform. Which postings are eligible lives in the SQL beside
+		// the query, so nothing above needs to be imported to decide it.
+		"searchping",
 		"silence", "verdict", "ycdir",
 		// wikicompany resolves a company name against Wikidata/Wikipedia's public APIs
 		// for the company-info-wikipedia-backfill worker — a fact-lookup about a
@@ -189,7 +209,8 @@ var blocks = map[string][]string{
 	"ingest": {
 		"adzunadesc", "applyform", "atsboard", "atsdetect", "boardcatalog", "boardresolve",
 		"catalogstats", "contribution", "ingestsched", "jdresolve", "linkimport", "linksource",
-		"moderation", "pipeline", "screeninganswers", "sources", "submission", "telegram",
+		"moderation", "pipeline", "screeninganswers", "sources", "sourcestats", "submission",
+		"telegram",
 	},
 	// socialdigest is here and not in ingest because it is outbound engagement — the
 	// same shape as broadcast and notify, differing only in that its audience is the
@@ -213,6 +234,12 @@ var blocks = map[string][]string{
 		// in job, because what it stores is what a PERSON reported, not a property the
 		// catalogue derived — the same reason report and vote are here.
 		"processreport", "pushnotify",
+		// prowelcome is here rather than beside billing for the same reason discordlink
+		// is: it is outbound engagement (a one-time email), not subscription logic. It
+		// reads a tier resolved elsewhere (plan.TierOf, same as discordlink) and never
+		// imports identity/billing at all — the reconciling worker that calls it reads
+		// the entitlement columns directly.
+		"prowelcome",
 		"referral", "reminder", "report", "socialdigest", "subscription",
 		"telegramnotify", "vote", "webhooknotify",
 	},
@@ -223,7 +250,11 @@ var blocks = map[string][]string{
 	// assembler), so it keeps handler's own reach; atsapply is cmd/auto-apply's
 	// counterpart to handler — the orchestration layer a cron entrypoint composes
 	// ingest+candidate+ai through, the same role handler plays for an HTTP request.
-	"api": {"atsapply", "candidateprofile", "handler", "ogimage", "ratelimit", "realtime"},
+	// ojcp is the projection into the Open Job Context Protocol's wire shapes. It sits in
+	// api rather than in job beside jobview because it is a foreign schema's rendering of
+	// our catalogue, not a shape the catalogue itself owns — and because it reads job,
+	// ingest (the captured apply form) and search together, which only api may do.
+	"api": {"atsapply", "candidateprofile", "handler", "ogimage", "ojcp", "ojcpmcp", "ratelimit", "realtime"},
 }
 
 // Assignment is the flattened package → block view the move script drives from.
