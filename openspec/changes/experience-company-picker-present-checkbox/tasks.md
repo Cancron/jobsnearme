@@ -12,9 +12,9 @@
 
 ## 3. Edit form: company autocomplete
 
-- [ ] 3.1 Add a failing test (new or extended `web/src/lib/components/ExperienceEmploymentCard.spec.ts`) asserting: editing a `kind: 'job'` employment renders `CompanyPicker` for the Company field with catalogue suggestions available, while editing a `kind: 'project'` employment still renders a plain text "Project name" input with no suggestions.
-- [ ] 3.2 In `ExperienceEmploymentCard.svelte`, branch the Company/Project-name `FormField` (~lines 148-152) by `employment.kind`: `CompanyPicker bind:value={empName}` for `'job'`, unchanged `Input` for `'project'`.
-- [ ] 3.3 Run the new test and confirm `saveEdit`'s payload shape is unchanged for both kinds.
+- [x] 3.1 Add a failing test (new or extended `web/src/lib/components/ExperienceEmploymentCard.spec.ts`) asserting: editing a `kind: 'job'` employment renders `CompanyPicker` for the Company field with catalogue suggestions available, while editing a `kind: 'project'` employment still renders a plain text "Project name" input with no suggestions.
+- [x] 3.2 In `ExperienceEmploymentCard.svelte`, branch the Company/Project-name `FormField` (~lines 148-152) by `employment.kind`: `CompanyPicker bind:value={empName}` for `'job'`, unchanged `Input` for `'project'`.
+- [x] 3.3 Run the new test and confirm `saveEdit`'s payload shape is unchanged for both kinds.
 
 ## 4. Add-job form: "I currently work here"
 
