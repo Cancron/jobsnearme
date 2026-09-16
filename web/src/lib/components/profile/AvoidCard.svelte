@@ -19,6 +19,12 @@
     onProfileChanged?: () => void;
   } = $props();
 
+  // Read to keep a currently-WANTED skill out of this tab's "skills to avoid" search (see
+  // searchSkills below) — picking one there would silently un-claim it via
+  // profileStore.avoidSkill (withAvoidedSkill drops a newly-avoided skill from `skills`),
+  // with no warning on this tab that the value was already held. Mirrors the exclusion
+  // SkillsPicker.svelte's combined picker used to apply before skills-to-avoid moved here.
+  const skills = $derived(profileStore.profile?.skills ?? []);
   const excludedSkills = $derived(profileStore.profile?.excluded_skills ?? []);
   const excludedSources = $derived(profileStore.profile?.excluded_sources ?? []);
   const excludedCompanies = $derived(profileStore.profile?.excluded_companies ?? []);
@@ -86,14 +92,17 @@
   });
 
   // A locally-held distribution search: an empty query lists the popular first page (8),
-  // a real query filters by label and returns up to 50 matches.
-  function searchDist(dist: FacetOption[], query: string): Promise<FacetOption[]> {
+  // a real query filters by label and returns up to 50 matches. `avoid` drops candidates
+  // that must not be pickable here — currently-wanted skills for the skills-to-avoid
+  // search (see `skills` above); sources/companies have no such counterpart.
+  function searchDist(dist: FacetOption[], query: string, avoid: string[] = []): Promise<FacetOption[]> {
+    const pool = avoid.length ? dist.filter((o) => !avoid.includes(o.value)) : dist;
     const q = query.trim().toLowerCase();
-    const matches = q ? dist.filter((o) => o.label.toLowerCase().includes(q)) : dist;
+    const matches = q ? pool.filter((o) => o.label.toLowerCase().includes(q)) : pool;
     return Promise.resolve(matches.slice(0, q ? 50 : 8));
   }
 
-  const searchSkills = (query: string) => searchDist(skillDist, query);
+  const searchSkills = (query: string) => searchDist(skillDist, query, skills);
   const searchSources = (query: string) => searchDist(sourceDist, query);
 </script>
 

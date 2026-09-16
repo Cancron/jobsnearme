@@ -289,6 +289,22 @@ export function dynamicOptions(param: string, dist: Record<string, number>, sele
     .sort((a, b) => (b.count ?? 0) - (a.count ?? 0) || a.label.localeCompare(b.label));
 }
 
+/** Fetch one dynamic facet's live distribution and shape it into sorted typeahead
+ *  options — the shared body behind skillDictionary.ts and sourceDictionary.ts (each
+ *  a thin, differently-named wrapper so callers import "the skills dictionary" /
+ *  "the source dictionary" rather than a bare param string). `opts.facets` narrows the
+ *  request to just this facet, when the caller has no other use for the rest. Best-effort:
+ *  any failure (network, decode) resolves to an empty list rather than throwing, so a
+ *  caller can render "nothing to suggest yet" instead of an error. */
+export async function loadFacetDistribution(param: string, opts?: { facets?: string[] }): Promise<FacetOption[]> {
+  try {
+    const counts = await api.facetCounts(new URLSearchParams(), opts);
+    return dynamicOptions(param, counts.facets?.[param] ?? {}, []);
+  } catch {
+    return [];
+  }
+}
+
 // Role slugs carry an optional seniority grade prefix (senior_backend); the
 // related-role map is keyed by the ungraded base (backend), so one entry serves
 // every grade. Longest prefix first is unnecessary — the grades share no

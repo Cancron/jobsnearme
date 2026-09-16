@@ -356,25 +356,10 @@ func normalizeSkills(skills []string) ([]string, error) {
 // failing an otherwise valid save. A whole-list problem errors: a set past the cardinality cap
 // returns ErrTooManySkills, mirroring normalizeSpecializations. An empty result is valid here
 // (the user need not avoid anything), and the slice is always non-nil so the value persists as
-// an empty array, not NULL.
+// an empty array, not NULL. A thin parameterization of normalizeExcludedSet with the skill
+// vocabulary's own length/count bound and error.
 func normalizeSkillList(skills []string) ([]string, error) {
-	out := make([]string, 0, len(skills))
-	seen := make(map[string]struct{}, len(skills))
-	for _, raw := range skills {
-		skill := strings.ToLower(strings.TrimSpace(raw))
-		if skill == "" || len(skill) > maxSkillLen {
-			continue
-		}
-		if _, dup := seen[skill]; dup {
-			continue
-		}
-		seen[skill] = struct{}{}
-		out = append(out, skill)
-	}
-	if len(out) > maxSkills {
-		return nil, ErrTooManySkills
-	}
-	return out, nil
+	return normalizeExcludedSet(skills, maxSkillLen, maxSkills, ErrTooManySkills)
 }
 
 // normalizeExcludedSet lowercases, trims, and deduplicates an excluded_sources or

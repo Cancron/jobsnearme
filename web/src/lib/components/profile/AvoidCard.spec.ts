@@ -17,14 +17,16 @@ const baseProfile: UserProfile = {
   updated_at: null,
 };
 
-const { avoidSkill, unavoidSkill, avoidSource, unavoidSource, avoidCompany, unavoidCompany } = vi.hoisted(() => ({
-  avoidSkill: vi.fn(),
-  unavoidSkill: vi.fn(),
-  avoidSource: vi.fn(),
-  unavoidSource: vi.fn(),
-  avoidCompany: vi.fn(),
-  unavoidCompany: vi.fn(),
-}));
+const { avoidSkill, unavoidSkill, avoidSource, unavoidSource, avoidCompany, unavoidCompany, loadSkillDistribution } =
+  vi.hoisted(() => ({
+    avoidSkill: vi.fn(),
+    unavoidSkill: vi.fn(),
+    avoidSource: vi.fn(),
+    unavoidSource: vi.fn(),
+    avoidCompany: vi.fn(),
+    unavoidCompany: vi.fn(),
+    loadSkillDistribution: vi.fn(),
+  }));
 
 vi.mock('$lib/profile.svelte', () => ({
   profileStore: {
@@ -42,9 +44,7 @@ vi.mock('$lib/profile.svelte', () => ({
 
 // Both dictionary fetches are real network in production; stubbed here so the pickers'
 // mount effects resolve instantly with no candidates to search.
-vi.mock('$lib/skillDictionary', () => ({
-  loadSkillDistribution: vi.fn().mockResolvedValue([]),
-}));
+vi.mock('$lib/skillDictionary', () => ({ loadSkillDistribution }));
 vi.mock('$lib/sourceDictionary', () => ({
   loadSourceDistribution: vi.fn().mockResolvedValue([]),
 }));
@@ -62,6 +62,7 @@ beforeEach(() => {
   unavoidSource.mockReset().mockResolvedValue(baseProfile);
   avoidCompany.mockReset().mockResolvedValue(baseProfile);
   unavoidCompany.mockReset().mockResolvedValue(baseProfile);
+  loadSkillDistribution.mockReset().mockResolvedValue([]);
 });
 
 describe('AvoidCard', () => {
@@ -115,5 +116,28 @@ describe('AvoidCard', () => {
     await fireEvent.click(screen.getByTitle('java'));
 
     expect(unavoidSkill).toHaveBeenCalledWith('java');
+  });
+
+  // "go" is one of the profile's currently-WANTED skills (baseProfile.skills). Offering
+  // it as a candidate here would let a click silently un-claim it via
+  // profileStore.avoidSkill (withAvoidedSkill drops a newly-avoided skill from `skills`)
+  // with no warning on this tab — including, in the worst case, un-claiming a user's
+  // only skill and turning the write into a 400 they'd see no explanation for.
+  it('does not offer a currently-wanted skill as a candidate to avoid', async () => {
+    loadSkillDistribution.mockResolvedValue([
+      { value: 'go', label: 'Go' },
+      { value: 'rust', label: 'Rust' },
+    ]);
+    render(AvoidCard, { props: {} });
+
+    await fireEvent.focus(screen.getByPlaceholderText('Search skills to exclude'));
+    await new Promise((resolve) => setTimeout(resolve, 300)); // clear the 250ms debounce
+
+    // Matched on textContent, not accessible name: the techIcons SkillIcon renders an
+    // <svg aria-label> alongside the visible text, which folds into the accessible name
+    // and makes an exact-name match brittle.
+    const optionTexts = screen.queryAllByRole('option').map((o) => o.textContent?.trim());
+    expect(optionTexts.some((t) => t?.includes('Go'))).toBe(false);
+    expect(optionTexts.some((t) => t?.includes('Rust'))).toBe(true);
   });
 });
