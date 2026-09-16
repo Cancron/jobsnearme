@@ -2581,6 +2581,12 @@ type Querier interface {
 	// it sqlc types the argument as pgtype.Text and every caller has to wrap a plain string
 	// it already knows is present.
 	GetTalentNetworkMemberByHandle(ctx context.Context, handle string) (GetTalentNetworkMemberByHandleRow, error)
+	// The same "is this handle a current member" predicate as
+	// GetTalentNetworkMemberByHandle, but naming only the user id — for the public photo
+	// route, which needs a headshot owner, never a public card. Kept as its own query
+	// rather than widening ByHandle's result: the id is not part of the public projection
+	// and has no reason to travel through the same path that assembles one.
+	GetTalentNetworkMemberUserIDByHandle(ctx context.Context, handle string) (int64, error)
 	// The caller's own Talent Network opt-in state, for the owner-facing settings toggle.
 	// talent_handle rides along so the page can render the public URL without a second
 	// round-trip. It is NULL until the first join — a non-member has no card to link to —
