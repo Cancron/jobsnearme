@@ -50,16 +50,23 @@ primary content right) directly, rather than inventing a different split (e.g. h
 Skills left, rest right) — there's exactly one sidebar-worthy list on this page today,
 so the mapping is unambiguous.
 
-**Mobile order via `order-last lg:order-none`, not DOM reordering.** The job page's
-`aside` precedes its content `div` in markup, so on mobile (`flex-col`, no grid) the
-match box renders above the job title. Reusing that DOM order here would put "Skills"
-above the candidate's own heading, which reads badly for a profile (the person before
-their stack). Keeping the Skills block in its current DOM position last, and adding
-`order-last lg:order-none`, achieves the same two outcomes with a one-class diff:
-mobile keeps today's reading order (header → ... → Skills), and desktop places Skills
-in the grid's first column via `lg:col-start-1` regardless of DOM order. Alternative
-considered: physically moving the Skills markup to the top of the file, matching
-JobView's DOM order — rejected because it would also change the mobile order, which is
+**Mobile order via DOM position, not CSS `order`.** The job page's `aside` precedes
+its content `div` in markup, so on mobile (`flex-col`, no grid) the match box renders
+above the job title. Reusing that DOM order here would put "Skills" above the
+candidate's own heading, which reads badly for a profile (the person before their
+stack). Keeping the Skills block last in the DOM achieves both outcomes with no
+`order` utility needed: below `lg` the container is `flex flex-col`, and with neither
+item carrying an explicit `order`, flex falls back to document order, so Skills
+renders last; at `lg:` both the sidebar and the content column carry a fully-explicit
+grid-column (and the sidebar an explicit `grid-row` too), so CSS Grid places each
+where its explicit coordinates say regardless of DOM position — `lg:col-start-1` puts
+Skills in the first column either way. An `order-last lg:order-none` pair was tried
+first on the assumption that `order` was doing the work; verified (via a
+code-reviewer pass and a follow-up screenshot with the classes removed) that it was
+inert in both states given this markup, and dropped as dead weight rather than kept
+as defensive styling. Alternative considered: physically moving the Skills markup to
+the top of the file, matching JobView's DOM order — rejected because it would also
+change the mobile order, which is
 not what was asked for or wanted.
 
 **Sidebar card reuses `JobView.svelte:772`'s exact classes, not the `Card`

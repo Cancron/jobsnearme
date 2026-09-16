@@ -13,8 +13,11 @@
       card.skills.length}` section rendering the `Chip` list) out of the main content
       flow and into a new sidebar element placed as the LAST child in the markup
       (preserving today's mobile reading order), styled with `lg:col-start-1
-      order-last lg:order-none sticky top-20 flex flex-col gap-4 rounded-xl border
-      border-border bg-card p-4` — matching `JobView.svelte:767-772`'s sidebar box.
+      sticky top-20 flex flex-col gap-4 rounded-xl border border-border bg-card p-4`
+      — matching `JobView.svelte:767-772`'s sidebar box. (An `order-last
+      lg:order-none` pair was tried first but found inert given this markup — see
+      design.md's "Mobile order via DOM position, not CSS `order`" — and dropped
+      during code review.)
 - [x] 2.2 Give the sidebar's "Skills" label the job page's uppercase section-label
       style: `text-xs font-semibold uppercase tracking-wide text-muted-foreground`
       (replacing the plain `<h2 class="text-sm font-medium">Skills</h2>` used by every

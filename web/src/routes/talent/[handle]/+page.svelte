@@ -170,7 +170,7 @@
   </div>
 
   {#if card.skills.length}
-    <aside class="order-last w-full shrink-0 lg:order-none lg:col-start-1 lg:row-start-1">
+    <aside class="w-full shrink-0 lg:col-start-1 lg:row-start-1">
       <div class="sticky top-20 flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
         <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Skills</p>
         <div class="flex flex-wrap gap-1.5">
