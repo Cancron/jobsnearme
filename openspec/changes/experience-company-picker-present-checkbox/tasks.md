@@ -6,9 +6,9 @@
 
 ## 2. Add-job form: company autocomplete
 
-- [ ] 2.1 Add a failing test in `web/src/lib/components/ExperienceBankView.spec.ts` (new file, or extend an existing one if present) asserting the "New experience" form's Company field shows catalogue suggestions from a mocked `api.listCompanies`, that picking one fills the field with the canonical name, and that saving with a typed name that matches no suggestion still calls `api.createExperienceEmployment` with that free text as `company`.
-- [ ] 2.2 In `ExperienceBankView.svelte`, replace the plain `Input` at the Company `FormField` (~lines 530-534) with `<CompanyPicker bind:value={jobCompany} />`.
-- [ ] 2.3 Run the new test and confirm `createJob`'s payload shape is unchanged (still `company: jobCompany.trim()`).
+- [x] 2.1 Add a failing test in `web/src/lib/components/ExperienceBankView.spec.ts` (new file, or extend an existing one if present) asserting the "New experience" form's Company field shows catalogue suggestions from a mocked `api.listCompanies`, that picking one fills the field with the canonical name, and that saving with a typed name that matches no suggestion still calls `api.createExperienceEmployment` with that free text as `company`.
+- [x] 2.2 In `ExperienceBankView.svelte`, replace the plain `Input` at the Company `FormField` (~lines 530-534) with `<CompanyPicker bind:value={jobCompany} />`.
+- [x] 2.3 Run the new test and confirm `createJob`'s payload shape is unchanged (still `company: jobCompany.trim()`).
 
 ## 3. Edit form: company autocomplete
 

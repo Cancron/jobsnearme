@@ -16,6 +16,7 @@
   import type { Component } from 'svelte';
   import { api } from '$lib/api';
   import { Button, ConfirmDialog, FormField, Input } from '$lib/ui';
+  import CompanyPicker from '$lib/components/CompanyPicker.svelte';
   import ExperienceAssistantPanel from '$lib/components/ExperienceAssistantPanel.svelte';
   import ExperienceEmploymentCard from '$lib/components/ExperienceEmploymentCard.svelte';
   import ExperienceAchievementRow from '$lib/components/ExperienceAchievementRow.svelte';
@@ -529,7 +530,7 @@
               <p class="text-sm font-medium">New experience</p>
               <FormField label="Company">
                 {#snippet children({ id, describedBy })}
-                  <Input {id} aria-describedby={describedBy} bind:value={jobCompany} />
+                  <CompanyPicker {id} aria-describedby={describedBy} bind:value={jobCompany} />
                 {/snippet}
               </FormField>
               <div class="flex gap-2">

@@ -15,9 +15,13 @@
   let {
     value = $bindable(''),
     onSelect,
+    id,
+    'aria-describedby': ariaDescribedby,
   }: {
     value?: string;
     onSelect?: (company: { slug: string; name: string } | null) => void;
+    id?: string;
+    'aria-describedby'?: string;
   } = $props();
 
   let results = $state.raw<CompanyListItem[]>([]);
@@ -75,6 +79,8 @@
 
 <div class="relative">
   <input
+    {id}
+    aria-describedby={ariaDescribedby}
     type="text"
     bind:value
     oninput={onInput}
