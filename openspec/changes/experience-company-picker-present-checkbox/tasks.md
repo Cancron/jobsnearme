@@ -30,6 +30,6 @@
 
 ## 6. Verification
 
-- [ ] 6.1 Run the full frontend check suite on the changed area: `pnpm --filter web check` (svelte-check) and the relevant vitest projects (`components`, unit) covering the new/changed spec files.
-- [ ] 6.2 Start the dev server and manually exercise both forms in a browser: add a job with a catalogue company via autocomplete, add one with a free-text company not in the catalogue, mark one current and confirm "Present" renders on save, edit an existing job entry to toggle current on and off.
-- [ ] 6.3 Re-read the diff for orphaned code (e.g. `query`-named leftovers in `CompanyPicker.svelte`) and confirm `ReferralsView.svelte`/`MentorProfileEditor.svelte` were not touched.
+- [x] 6.1 Run the full frontend check suite on the changed area: `pnpm --filter web check` (svelte-check) and the relevant vitest projects (`components`, unit) covering the new/changed spec files.
+- [x] 6.2 Start the dev server and manually exercise both forms in a browser: add a job with a catalogue company via autocomplete, add one with a free-text company not in the catalogue, mark one current and confirm "Present" renders on save, edit an existing job entry to toggle current on and off.
+- [x] 6.3 Re-read the diff for orphaned code (e.g. `query`-named leftovers in `CompanyPicker.svelte`) and confirm `ReferralsView.svelte`/`MentorProfileEditor.svelte` were not touched.
