@@ -48,7 +48,10 @@ vi.mock('$lib/skillDictionary', () => ({
 vi.mock('$lib/sourceDictionary', () => ({
   loadSourceDistribution: vi.fn().mockResolvedValue([]),
 }));
-vi.mock('$lib/facets', () => ({
+// Only companySearch is stubbed (real network in production); dynamicLabel is real so
+// the fallback-label behavior (raw slug vs. resolved name) is exercised as written.
+vi.mock('$lib/facets', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('$lib/facets')>()),
   companySearch: vi.fn().mockResolvedValue([]),
 }));
 
@@ -76,7 +79,10 @@ describe('AvoidCard', () => {
     const onProfileChanged = vi.fn();
     render(AvoidCard, { props: { onProfileChanged } });
 
-    await fireEvent.click(screen.getByTitle('greenhouse'));
+    // The chip's title is the resolved display name (sourceLabel), not the raw slug —
+    // see the fallbackLabel fix: a pre-seeded value not in the dictionary's popular
+    // page must still render its proper name, not "greenhouse".
+    await fireEvent.click(screen.getByTitle('Greenhouse', { exact: true }));
 
     expect(unavoidSource).toHaveBeenCalledWith('greenhouse');
     expect(onProfileChanged).toHaveBeenCalledTimes(1);
@@ -86,7 +92,8 @@ describe('AvoidCard', () => {
     const onProfileChanged = vi.fn();
     render(AvoidCard, { props: { onProfileChanged } });
 
-    await fireEvent.click(screen.getByTitle('acme'));
+    // Same resolved-label behavior as sources, via companyLabel.
+    await fireEvent.click(screen.getByTitle('Acme', { exact: true }));
 
     expect(unavoidCompany).toHaveBeenCalledWith('acme');
     expect(onProfileChanged).toHaveBeenCalledTimes(1);

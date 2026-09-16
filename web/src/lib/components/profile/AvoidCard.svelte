@@ -5,7 +5,7 @@
   // list to reconcile against, so toggling one is a plain add/remove (see
   // profileExclusions.ts) rather than the mutual-exclusion dance withAvoidedSkill does.
   import type { FacetOption } from '$lib/facets';
-  import { companySearch } from '$lib/facets';
+  import { companySearch, dynamicLabel } from '$lib/facets';
   import { loadSkillDistribution } from '$lib/skillDictionary';
   import { loadSourceDistribution } from '$lib/sourceDictionary';
   import { profileStore } from '$lib/profile.svelte';
@@ -127,7 +127,7 @@
       exclude={excludedSources}
       placeholder="Search sources to exclude"
       onToggle={toggleExcludedSource}
-      fallbackLabel={(v) => v}
+      fallbackLabel={(v) => dynamicLabel('source', v)}
       clearOnSelect
       ready={sourceDistReady}
     />
@@ -144,7 +144,7 @@
       exclude={excludedCompanies}
       placeholder="Search companies to exclude"
       onToggle={toggleExcludedCompany}
-      fallbackLabel={(v) => v}
+      fallbackLabel={(v) => dynamicLabel('company_slug', v)}
       clearOnSelect
     />
   </div>

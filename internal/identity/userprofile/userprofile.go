@@ -196,9 +196,10 @@ func (s *Service) Delete(ctx context.Context, userID int64) error {
 // the bank without the candidate re-declaring what it already proves. It is a courtesy
 // update, not profile management: a user with no saved profile gets no side effect (the
 // same "do not invent one" rule the profile's own Save enforces), and it never removes a
-// skill, overwrites specializations, excluded_skills or location preferences, or errors
-// past the skill cap — it silently adds only as many of the new skills as still fit,
-// mirroring how a manual claim behaves when the profile is near the limit.
+// skill, overwrites specializations, excluded_skills, excluded_sources, excluded_companies,
+// or location preferences, or errors past the skill cap — it silently adds only as many of
+// the new skills as still fit, mirroring how a manual claim behaves when the profile is
+// near the limit.
 //
 // The merge (which skills still fit, what the rest of the profile currently holds) is
 // computed in Go from a Get read outside any transaction, so a concurrent Save() landing
