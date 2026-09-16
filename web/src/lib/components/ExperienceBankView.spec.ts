@@ -82,4 +82,35 @@ describe('ExperienceBankView add-job form', () => {
       ),
     );
   });
+
+  it('hides the End date and saves as current when "I currently work here" is checked', async () => {
+    await openAddJobForm();
+
+    await fireEvent.input(screen.getByLabelText('Company'), { target: { value: 'Acme' } });
+    await fireEvent.click(screen.getByLabelText('I currently work here'));
+
+    expect(screen.queryByPlaceholderText('End')).toBeNull();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(createExperienceEmployment).toHaveBeenCalledWith(
+        expect.objectContaining({ current: true, end: undefined }),
+      ),
+    );
+  });
+
+  it('saves as not current when left unchecked', async () => {
+    await openAddJobForm();
+
+    await fireEvent.input(screen.getByLabelText('Company'), { target: { value: 'Acme' } });
+    expect(screen.getByPlaceholderText('End')).toBeTruthy();
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() =>
+      expect(createExperienceEmployment).toHaveBeenCalledWith(
+        expect.objectContaining({ current: false }),
+      ),
+    );
+  });
 });

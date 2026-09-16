@@ -57,6 +57,7 @@
   let jobLocation = $state('');
   let jobStart = $state<PeriodDate | undefined>(undefined);
   let jobEnd = $state<PeriodDate | undefined>(undefined);
+  let jobCurrent = $state(false);
 
   /** Where the unconfirmed-achievements banner last sent the candidate. Drives which
    *  employment card force-expands and which row scrolls into view — see
@@ -232,7 +233,8 @@
         role: jobRole.trim() || undefined,
         location: jobLocation.trim() || undefined,
         start: jobStart,
-        end: jobEnd,
+        end: jobCurrent ? undefined : jobEnd,
+        current: jobCurrent,
       });
       addingJob = false;
       jobCompany = '';
@@ -240,6 +242,7 @@
       jobLocation = '';
       jobStart = undefined;
       jobEnd = undefined;
+      jobCurrent = false;
       await load();
       onBankMutated?.();
     } catch (e) {
@@ -523,6 +526,7 @@
             jobLocation = '';
             jobStart = undefined;
             jobEnd = undefined;
+            jobCurrent = false;
           })}
 
           {#if addingJob}
@@ -547,8 +551,14 @@
               </div>
               <div class="flex gap-2">
                 <PeriodDateInput bind:value={jobStart} placeholder="Start" />
-                <PeriodDateInput bind:value={jobEnd} placeholder="End" />
+                {#if !jobCurrent}
+                  <PeriodDateInput bind:value={jobEnd} placeholder="End" />
+                {/if}
               </div>
+              <label class="flex items-center gap-2 text-sm">
+                <input type="checkbox" bind:checked={jobCurrent} class="h-4 w-4" />
+                <span class="text-muted-foreground">I currently work here</span>
+              </label>
               <div class="flex gap-2">
                 <Button size="sm" disabled={busy || !jobCompany.trim()} onclick={createJob}>Save</Button>
                 <Button size="sm" variant="ghost" onclick={() => (addingJob = false)}>Cancel</Button>

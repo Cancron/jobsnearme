@@ -18,9 +18,9 @@
 
 ## 4. Add-job form: "I currently work here"
 
-- [ ] 4.1 Extend `ExperienceBankView.spec.ts` with a failing test: checking "I currently work here" hides the End-date input and makes `createJob` call `api.createExperienceEmployment` with `current: true` and `end: undefined`; leaving it unchecked keeps today's behavior (`current: false`/absent, whatever the End input holds).
-- [ ] 4.2 Add `jobCurrent = $state(false)` next to `jobStart`/`jobEnd`; add a checkbox ("I currently work here") beside the End `PeriodDateInput`, conditionally rendering that input with `{#if !jobCurrent}` and clearing `jobEnd` when checked.
-- [ ] 4.3 Pass `current: jobCurrent` in `createJob`'s request body, and reset `jobCurrent = false` alongside the other field resets after a successful save.
+- [x] 4.1 Extend `ExperienceBankView.spec.ts` with a failing test: checking "I currently work here" hides the End-date input and makes `createJob` call `api.createExperienceEmployment` with `current: true` and `end: undefined`; leaving it unchecked keeps today's behavior (`current: false`/absent, whatever the End input holds).
+- [x] 4.2 Add `jobCurrent = $state(false)` next to `jobStart`/`jobEnd`; add a checkbox ("I currently work here") beside the End `PeriodDateInput`, conditionally rendering that input with `{#if !jobCurrent}` and clearing `jobEnd` when checked.
+- [x] 4.3 Pass `current: jobCurrent` in `createJob`'s request body, and reset `jobCurrent = false` alongside the other field resets after a successful save.
 
 ## 5. Edit form: "I currently work here"
 
