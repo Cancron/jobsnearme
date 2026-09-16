@@ -34,6 +34,9 @@ today it is not one.
   — and survive pagination/facet/sort changes afterward. See design.md's Addendum: this
   made `qFields` a first-class `JobFilters` field rather than something threaded past
   it, found during code review after the launcher-only fix looked complete.
+- The quoting itself must never reach a human: a filter chip, the search box's
+  displayed text, and an analytics event all read `q` as if it were plain typed
+  text, and none were quote-aware. See design.md's Addendum 2.
 
 ## Capabilities
 
@@ -63,7 +66,12 @@ today it is not one.
   `qFields` through, and clear it whenever a query is set independently of a
   suggestion pick.
 - `web/src/lib/components/JobsView.svelte`: passes a suggestion's `qFields` through to
-  `FilterStore.applyParts`.
+  `FilterStore.applyParts`, and strips the quoting wrapper before using `plan.q` as an
+  analytics fallback.
+- `web/src/lib/facetModel.ts` (`displayQuery`, new): the inverse of
+  `quoteForTitleSearch`, applied wherever `q` is shown to a person rather than sent to
+  the search API — the filter chip (`FilterSummary.svelte`) and the header search
+  box's displayed text (`HeaderSearch.svelte`).
 - `internal/api/handler/search.go` (`recordQuery`): strips the quoting wrapper before
   calling `suggest.Title`, so demand tracking is unaffected by the new mechanism.
 - No change to `cmd/build-suggestions`, the nightly dictionary build, or the

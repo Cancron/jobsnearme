@@ -98,6 +98,17 @@ export interface JobFilters {
   qFields: string[] | null;
 }
 
+/** Strips a title suggestion's Meilisearch quoting wrapper (see `apiSuggestions.ts`'s
+ *  `quoteForTitleSearch`) from a query before showing it to a person: a filter chip,
+ *  the header search box, an analytics event. The wrapper is a query-construction
+ *  detail — it decides how Meilisearch matches `q`, not what the visitor typed or
+ *  should read back. Mirrors `demandKey` in internal/api/handler/search.go, which
+ *  strips the same wrapper for a different reason (demand-tracking key
+ *  normalisation). */
+export function displayQuery(q: string): string {
+  return q.length >= 2 && q.startsWith('"') && q.endsWith('"') ? q.slice(1, -1) : q;
+}
+
 /** The feed's ordering vocabulary. Deliberately short: this is not a general sort
  *  control (the API also accepts created_at and the salary bounds), it is the two
  *  orderings the endpoint defaults between, plus the profile-match feed and the

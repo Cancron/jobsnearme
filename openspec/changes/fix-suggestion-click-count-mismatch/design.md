@@ -183,3 +183,40 @@ carry (setting/clearing `qFields`) is a thin pass-through to `filtersWithParts`,
 IS fully unit-tested in `facetModel.test.ts`. Closing that boundary for the whole class
 would be a much larger, separate undertaking (a Svelte-aware test harness for every
 `FilterStore` method) disproportionate to this change.
+
+## Addendum 2: the quoting wrapper leaked into human-facing text
+
+An independent code-review pass (run after the previous addendum) found that
+`JobFilters.q`/`ApplyPlan.q` are read in three places as if they were plain,
+human-typed text, and none of them were updated for the new quoting:
+
+- `FilterSummary.svelte`'s "Search" chip renders `f.q` verbatim.
+- `HeaderSearch.svelte`'s search box reconciles its displayed text from
+  `target.value.q` (and, on first paint, the raw URL `q` param).
+- `JobsView.svelte`'s `role_suggestion` analytics event falls back to `plan.q` for a
+  title-only suggestion's `role` field.
+
+After this change, all three would show or record `"Founding Engineer"` — literal
+quote marks included — for a title suggestion, which is a real, visible regression:
+the chip and the search box are meant to show what the visitor is searching for, not
+a Meilisearch query-syntax detail, and the analytics `role` field is read downstream
+as the role name, not as a quoted string.
+
+**Resolution**: `displayQuery(q: string): string` (`facetModel.ts`) strips a matching
+leading/trailing quote pair — the exact inverse of `quoteForTitleSearch`
+(`apiSuggestions.ts`) — and is applied at every point `q` is read for a human (the
+chip text, the search box's reconciled display value, the analytics fallback). It is
+NOT applied to the value actually sent to the search API, the URL `q` param, or
+`recordQuery`'s demand key — those three must keep the quoting wrapper (or, for
+`recordQuery`, have it stripped by the separate `demandKey` normalisation) to work
+correctly. `displayQuery` and `demandKey` solve the same shape of problem — "this
+string may carry a query-construction artifact that must not leak into a different
+context" — independently, on their own sides of the stack, because there is no
+shared module between the Go backend and the Svelte frontend for them to share
+through.
+
+This was not caught by the original design or either implementation pass because
+every test written up to that point exercised `q`/`qFields` as request-construction
+inputs (what gets sent, what gets serialized to a URL) — none exercised what a human
+sees. `displayQuery` itself is fully unit-tested; the three call sites are the same
+kind of thin, Svelte-dependent glue documented as untested in Addendum 1.

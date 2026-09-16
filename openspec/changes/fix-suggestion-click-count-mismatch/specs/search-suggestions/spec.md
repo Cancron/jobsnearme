@@ -72,3 +72,11 @@ produces and neither its application nor its count computation changes.
 - **THEN** the new search is NOT restricted to the title field — the
   restriction was scoped to the suggestion that set it, not a general
   preference for future searches
+
+#### Scenario: The quoting used to build the request never reaches a person
+
+- **WHEN** a title suggestion's quoted query is shown to a visitor — a
+  filter chip, the header search box, an analytics event describing what
+  was searched
+- **THEN** it reads as plain text with no quote marks, even though the
+  request actually sent to search carries them

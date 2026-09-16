@@ -5,6 +5,7 @@ import {
   filtersToParams,
   filtersFromParams,
   filtersWithParts,
+  displayQuery,
   activeFilterCount,
   canonicalQuery,
   savedSearchQuery,
@@ -607,5 +608,33 @@ describe('matchSortNeedsSkills', () => {
   // Nobody asked for match here, so there is nothing to explain.
   it('says nothing when no ordering was stated', () => {
     expect(matchSortNeedsSkills(emptyFilters(), false)).toBe(false);
+  });
+});
+
+// A title suggestion's click wraps `q` in Meilisearch's quoting syntax (see
+// apiSuggestions.ts's quoteForTitleSearch) so the search engine matches it
+// correctly — but that wrapper is a query-construction detail, not what the
+// visitor typed, and must never reach a filter chip, the search box, or an
+// analytics event as literal quote marks.
+describe('displayQuery', () => {
+  it('strips a matching pair of wrapping quotes', () => {
+    expect(displayQuery('"Founding Engineer"')).toBe('Founding Engineer');
+  });
+
+  it('leaves unquoted text untouched', () => {
+    expect(displayQuery('Founding Engineer')).toBe('Founding Engineer');
+  });
+
+  it('leaves a lone quote character untouched', () => {
+    expect(displayQuery('"')).toBe('"');
+  });
+
+  it('leaves a quote at only one end untouched', () => {
+    expect(displayQuery('"Founding Engineer')).toBe('"Founding Engineer');
+    expect(displayQuery('Founding Engineer"')).toBe('Founding Engineer"');
+  });
+
+  it('leaves the empty string untouched', () => {
+    expect(displayQuery('')).toBe('');
   });
 });

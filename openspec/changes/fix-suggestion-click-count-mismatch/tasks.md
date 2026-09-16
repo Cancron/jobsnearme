@@ -66,25 +66,46 @@ project's plain-Node vitest config cannot load — the same pre-existing boundar
 rest of `FilterStore` already sits behind). The logic they carry is a thin
 pass-through to `filtersWithParts`, which IS fully covered above.
 
-## 4. Verification
+## 4. Keep the quoting wrapper out of human-facing text (found in independent review)
 
-- [x] 4.1 `go build ./... && go vet ./...` and `go test ./...` clean (one pre-existing,
+An independently-run review pass found `JobFilters.q`/`ApplyPlan.q` read as plain
+text in three places that never anticipated the new quoting: `FilterSummary.svelte`'s
+filter chip, `HeaderSearch.svelte`'s displayed search-box text, and
+`JobsView.svelte`'s `role_suggestion` analytics fallback. All three would show/record
+literal quote marks for a title suggestion. See design.md's Addendum 2.
+
+- [x] 4.1 In `web/src/lib/facetModel.test.ts`, add failing tests for a new
+      `displayQuery` function: strips a matching wrapping quote pair; leaves
+      unquoted text, a lone quote character, a one-sided quote, and the empty string
+      untouched.
+- [x] 4.2 Add `displayQuery(q: string): string` to `facetModel.ts` — the inverse of
+      `apiSuggestions.ts`'s `quoteForTitleSearch`.
+- [x] 4.3 Apply `displayQuery` at every point `q` is read for a human, not sent to
+      the search API: `FilterSummary.svelte`'s chip text, `HeaderSearch.svelte`'s
+      displayed/reconciled search-box value, `JobsView.svelte`'s analytics `role`
+      fallback.
+- [x] 4.4 Run `npx svelte-check` and the full web test suite; confirm no regressions.
+
+## 5. Verification
+
+- [x] 5.1 `go build ./... && go vet ./...` and `go test ./...` clean (one pre-existing,
       unrelated failure: `cmd/billing-sync`'s `TestTheStoreProviderAloneKeepsTheWorkerRunning`
       fails in this environment because an ambient local Postgres on :5432, not this
       change, answers when the test clears `DATABASE_URL` — not touched by this diff).
-- [x] 4.2 `gofmt -l .` prints nothing for touched Go files; `npx eslint` clean on
+- [x] 5.2 `gofmt -l .` prints nothing for touched Go files; `npx eslint` clean on
       touched frontend files.
-- [ ] 4.3 (Deferred — see note) Manually verify against a live stack: type "Founding
+- [ ] 5.3 (Deferred — see note) Manually verify against a live stack: type "Founding
       Engineer" (or another known-mismatched phrase) in the search box, click the
       title suggestion — both from the launcher and while already on `/jobs` — page
       forward, and confirm the request stays quoted and title-scoped throughout, with
-      a result count close to the suggestion's displayed count. Skipped in this
+      a result count close to the suggestion's displayed count, AND that the chip/
+      search box/analytics all show plain text with no quote marks. Skipped in this
       session — it needs a stack with real, indexed catalogue data (`make up` +
       seeding + a `cmd/build-suggestions` run), which is disproportionate
       infrastructure to stand up for a fix already covered end-to-end by unit tests.
       Do this once against staging or after deploy, not by standing up a local stack
       just for it.
-- [x] 4.4 Confirm a suggestion click's search still appears under its plain
+- [x] 5.4 Confirm a suggestion click's search still appears under its plain
       (unquoted) form in `search_queries` rather than under a quoted variant —
       proven deterministically by `TestDemandKey_StripsMatchingQuotePairBeforeNormalising`
       (2.1); no live-DB spot-check needed.
