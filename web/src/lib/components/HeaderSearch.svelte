@@ -7,6 +7,7 @@
   import { api } from '$lib/api';
   import { isAuthenticated } from '$lib/auth.svelte';
   import { browseQuery, planForSuggestion } from '$lib/browseTarget';
+  import { displayQuery } from '$lib/filters';
   import { dropdownRows, namedCompanies, type DropdownRow } from '$lib/dropdownRows';
   import { companyLogoUrl } from '$lib/logo';
   import { EntityLogo } from '$lib/ui';
@@ -304,7 +305,7 @@
   );
   // Fall back to the URL's `q` before the view registers (SSR + first paint), so a
   // shared /jobs?q=… link shows its query immediately.
-  const q = $derived(target.value.q || (page.url.searchParams.get('q') ?? ''));
+  const q = $derived(displayQuery(target.value.q || (page.url.searchParams.get('q') ?? '')));
 
   // What the box shows, which is only the committed query until someone types.
   //

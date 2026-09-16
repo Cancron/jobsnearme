@@ -93,6 +93,28 @@ export interface JobFilters {
    *  into a text search and date-order it — the exact outcome design.md rejects. Read
    *  this through effectiveSort, never directly. */
   sort: JobSort | null;
+  /** Restricts `q` to a named subset of the search's usual fields (title, company,
+   *  description, location) — set only by a title suggestion's `applyParts` call
+   *  (see `filtersWithParts`), so the count it displayed (an exact-title-match count)
+   *  approximates what searching actually returns instead of a much wider match
+   *  across all four fields. `null`, not an empty array, spells "no restriction" —
+   *  the same convention `salaryMin`/`postedWithinDays` use — and it is cleared
+   *  whenever `q` is set independently (typing, the header's Enter, its clear
+   *  button; see `FilterStore.setQuery`/`commitQuery`), so the restriction never
+   *  outlives the search it was scoped to. Mirrors `q_fields` in
+   *  internal/search/search/query_params.go. */
+  qFields: string[] | null;
+}
+
+/** Strips a title suggestion's Meilisearch quoting wrapper (see `apiSuggestions.ts`'s
+ *  `quoteForTitleSearch`) from a query before showing it to a person: a filter chip,
+ *  the header search box, an analytics event. The wrapper is a query-construction
+ *  detail — it decides how Meilisearch matches `q`, not what the visitor typed or
+ *  should read back. Mirrors `demandKey` in internal/api/handler/search.go, which
+ *  strips the same wrapper for a different reason (demand-tracking key
+ *  normalisation). */
+export function displayQuery(q: string): string {
+  return q.length >= 2 && q.startsWith('"') && q.endsWith('"') ? q.slice(1, -1) : q;
 }
 
 /** The feed's ordering vocabulary. Deliberately short: this is not a general sort
@@ -228,6 +250,7 @@ export function emptyFilters(): JobFilters {
     openWithinDays: null,
     experienceYearsMax: null,
     sort: null,
+    qFields: null,
   };
 }
 
@@ -237,6 +260,7 @@ export function emptyFilters(): JobFilters {
 export function filtersToParams(f: JobFilters): URLSearchParams {
   const p = new URLSearchParams();
   if (f.q) p.set('q', f.q);
+  if (f.qFields?.length) p.set('q_fields', f.qFields.join(','));
   for (const def of FACETS) {
     const st = f.facets[def.param];
     if (!st) continue;
@@ -299,6 +323,8 @@ function positiveDays(raw: string | null): number | null {
 export function filtersFromParams(p: URLSearchParams): JobFilters {
   const f = emptyFilters();
   f.q = p.get('q') ?? '';
+  const qFields = splitParamValues(p.getAll('q_fields'));
+  f.qFields = qFields.length > 0 ? qFields : null;
   for (const def of FACETS) {
     // URL params aren't guaranteed unique (shared/edited links, crawlers), but a
     // facet's values are a set — the store's transitions enforce that on user
@@ -440,17 +466,23 @@ export function facetRemove(st: FacetState, v: string): FacetState {
  *  and the intermediate URL would be a search nobody asked for.
  *
  *  The typed text is replaced rather than kept: the parts ARE what was typed, resolved.
- *  A `title` part carries it back as `q`, since no facet spells "Product Owner". */
+ *  A `title` part carries it back as `q`, since no facet spells "Product Owner".
+ *
+ *  `qFields` is replaced too, not merged: a previous suggestion's title-field
+ *  restriction (see `JobFilters.qFields`) must not silently carry over onto a new
+ *  suggestion that names no title of its own, so a missing/empty argument here
+ *  clears it rather than leaving the prior value in place. */
 export function filtersWithParts(
   f: JobFilters,
   parts: readonly (readonly [param: string, value: string])[],
   q: string,
+  qFields: readonly string[] | null = null,
 ): JobFilters {
   const facets = { ...f.facets };
   for (const [param, value] of parts) {
     facets[param] = facetSetSign(facets[param] ?? emptyFacet(), value, 'include');
   }
-  return { ...f, q, facets };
+  return { ...f, q, qFields: qFields?.length ? [...qFields] : null, facets };
 }
 
 /** A profile may hold up to 200 skills and, independently, up to 200 excluded skills
