@@ -1,8 +1,8 @@
 ## 1. `CompanyPicker`: bindable free text, optional `onSelect`
 
-- [ ] 1.1 Add a failing test in `web/src/lib/components/CompanyPicker.spec.ts` (new file) asserting: (a) typing into the input updates a bound `value` prop on every keystroke, even before any suggestion is picked; (b) picking a suggestion sets both the bound `value` (to the canonical name) and fires `onSelect` with `{slug, name}`; (c) the component renders and behaves identically when `value` is left unbound and `onSelect` is the only prop passed (mirrors today's `ReferralsView`/`MentorProfileEditor` usage).
-- [ ] 1.2 In `CompanyPicker.svelte`, turn the internal `query` state into a `value = $bindable('')` prop and make `onSelect` optional (`onSelect?: (...) => void`), updating `pick()`/`onInput()` to read/write `value` instead of `query`.
-- [ ] 1.3 Confirm `ReferralsView.svelte` and `MentorProfileEditor.svelte` still type-check and their existing tests still pass unchanged (no edits expected there).
+- [x] 1.1 Add a failing test in `web/src/lib/components/CompanyPicker.spec.ts` (new file) asserting: (a) typing into the input updates a bound `value` prop on every keystroke, even before any suggestion is picked; (b) picking a suggestion sets both the bound `value` (to the canonical name) and fires `onSelect` with `{slug, name}`; (c) the component renders and behaves identically when `value` is left unbound and `onSelect` is the only prop passed (mirrors today's `ReferralsView`/`MentorProfileEditor` usage).
+- [x] 1.2 In `CompanyPicker.svelte`, turn the internal `query` state into a `value = $bindable('')` prop and make `onSelect` optional (`onSelect?: (...) => void`), updating `pick()`/`onInput()` to read/write `value` instead of `query`.
+- [x] 1.3 Confirm `ReferralsView.svelte` and `MentorProfileEditor.svelte` still type-check and their existing tests still pass unchanged (no edits expected there).
 
 ## 2. Add-job form: company autocomplete
 
