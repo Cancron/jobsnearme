@@ -51,6 +51,12 @@
 
   const unconfirmed = $derived(isUnconfirmed(atom));
 
+  const rowBackground = $derived.by(() => {
+    if (unconfirmed) return 'bg-warning/5';
+    if (selected) return 'bg-brand/5';
+    return '';
+  });
+
   // Matches design-system Input's own styling — there is no design-system Textarea to
   // reach for instead (see design.md), so this mirrors it by hand for the three fields
   // below rather than drifting across three separately-typed class strings.
@@ -108,11 +114,7 @@
 <li
   bind:this={rowEl}
   tabindex="-1"
-  class="rounded-md py-2 pl-1 pr-2 {unconfirmed
-    ? 'bg-warning/5'
-    : selected
-      ? 'bg-brand/5'
-      : ''}"
+  class="rounded-md py-2 pl-1 pr-2 {rowBackground}"
 >
   {#if isEditing}
     <div class="flex flex-col gap-2">
