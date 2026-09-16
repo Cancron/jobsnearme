@@ -209,7 +209,7 @@ func (h *authHandlers) OAuthExchange(c *fiber.Ctx) error {
 	if err != nil {
 		return accountsError(err)
 	}
-	return c.JSON(fiber.Map{"data": toUserResponse(user)})
+	return c.JSON(fiber.Map{"data": h.toUserResponseWithTier(c.Context(), user)})
 }
 
 // oauthFail logs the failure server-side and sends the client back to where

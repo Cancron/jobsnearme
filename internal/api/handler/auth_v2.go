@@ -332,7 +332,7 @@ func (h *authHandlers) OAuthExchangeV2(c *fiber.Ctx) error {
 	if err = h.setSession(c, ex.UserID); err != nil {
 		return err
 	}
-	return c.JSON(fiber.Map{"data": toUserResponse(user)})
+	return c.JSON(fiber.Map{"data": h.toUserResponseWithTier(c.Context(), user)})
 }
 
 func (h *authHandlers) AppleAttemptV2(c *fiber.Ctx) error {
@@ -481,7 +481,7 @@ func (h *authHandlers) AppleExchangeV2(c *fiber.Ctx) error {
 	if err = h.setSession(c, userID); err != nil {
 		return err
 	}
-	return c.JSON(fiber.Map{"data": toUserResponse(user)})
+	return c.JSON(fiber.Map{"data": h.toUserResponseWithTier(c.Context(), user)})
 }
 
 func (h *authHandlers) PasswordReauthV2(c *fiber.Ctx) error {
