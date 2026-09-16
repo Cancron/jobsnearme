@@ -27,6 +27,7 @@
     ExperienceAtom,
     ExperienceBank,
     ExperienceEmployment,
+    ExperienceEmploymentWithAtoms,
     PeriodDate,
   } from '$lib/types';
   import { must } from '$lib/utils';
@@ -556,21 +557,7 @@
 
           <div class="flex flex-col gap-6">
             {#each jobs as employment (employment.id)}
-              <ExperienceEmploymentCard
-                {employment}
-                selectedIds={selected}
-                {busy}
-                {turnActive}
-                forceExpanded={bannerTarget?.employmentId === employment.id}
-                scrollToAtomId={bannerTarget?.employmentId === employment.id ? bannerTarget.atomId : undefined}
-                onToggleSelect={toggleSelect}
-                onConfirmAtom={confirmAtom}
-                onSaveAtomEdit={saveAtomEdit}
-                onSavePromote={savePromoteToProject}
-                onRemoveAtom={requestRemove}
-                onSaveEmployment={saveEmployment}
-                onRemoveEmployment={requestRemoveEmployment}
-              />
+              {@render employmentCard(employment)}
             {/each}
           </div>
           {#if jobs.length === 0 && !addingJob}
@@ -613,21 +600,7 @@
 
           <div class="flex flex-col gap-6">
             {#each projects as employment (employment.id)}
-              <ExperienceEmploymentCard
-                {employment}
-                selectedIds={selected}
-                {busy}
-                {turnActive}
-                forceExpanded={bannerTarget?.employmentId === employment.id}
-                scrollToAtomId={bannerTarget?.employmentId === employment.id ? bannerTarget.atomId : undefined}
-                onToggleSelect={toggleSelect}
-                onConfirmAtom={confirmAtom}
-                onSaveAtomEdit={saveAtomEdit}
-                onSavePromote={savePromoteToProject}
-                onRemoveAtom={requestRemove}
-                onSaveEmployment={saveEmployment}
-                onRemoveEmployment={requestRemoveEmployment}
-              />
+              {@render employmentCard(employment)}
             {/each}
           </div>
           {#if projects.length === 0 && !addingProject}
@@ -664,6 +637,25 @@
       </div>
     {/if}
 </div>
+
+{#snippet employmentCard(employment: ExperienceEmploymentWithAtoms)}
+  {@const isBannerTarget = bannerTarget?.employmentId === employment.id}
+  <ExperienceEmploymentCard
+    {employment}
+    selectedIds={selected}
+    {busy}
+    {turnActive}
+    forceExpanded={isBannerTarget}
+    scrollToAtomId={isBannerTarget ? bannerTarget?.atomId : undefined}
+    onToggleSelect={toggleSelect}
+    onConfirmAtom={confirmAtom}
+    onSaveAtomEdit={saveAtomEdit}
+    onSavePromote={savePromoteToProject}
+    onRemoveAtom={requestRemove}
+    onSaveEmployment={saveEmployment}
+    onRemoveEmployment={requestRemoveEmployment}
+  />
+{/snippet}
 
 {#snippet sectionHeader(icon: Component<{ class?: string }>, title: string, addLabel: string, onAdd: () => void)}
   {@const Icon = icon}

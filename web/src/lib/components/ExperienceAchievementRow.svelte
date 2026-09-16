@@ -51,6 +51,12 @@
 
   const unconfirmed = $derived(isUnconfirmed(atom));
 
+  // Matches design-system Input's own styling — there is no design-system Textarea to
+  // reach for instead (see design.md), so this mirrors it by hand for the three fields
+  // below rather than drifting across three separately-typed class strings.
+  const textareaClass =
+    'w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50';
+
   let isEditing = $state(false);
   let draftClaim = $state('');
   let draftContext = $state('');
@@ -117,7 +123,7 @@
             aria-describedby={describedBy}
             bind:value={draftClaim}
             rows="2"
-            class="w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            class={textareaClass}
           ></textarea>
         {/snippet}
       </FormField>
@@ -128,7 +134,7 @@
             aria-describedby={describedBy}
             bind:value={draftContext}
             rows="2"
-            class="w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            class={textareaClass}
           ></textarea>
         {/snippet}
       </FormField>
@@ -139,7 +145,7 @@
             aria-describedby={describedBy}
             bind:value={draftMetrics}
             rows="2"
-            class="w-full resize-y rounded-lg border border-input bg-transparent px-3 py-2 font-mono text-sm focus-visible:border-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+            class="{textareaClass} font-mono"
           ></textarea>
         {/snippet}
       </FormField>
