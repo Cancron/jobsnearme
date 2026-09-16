@@ -69,8 +69,12 @@
 
   let expanded = $state(false);
 
+  // Reads `scrollToAtomId` too, not just `forceExpanded`: re-clicking the unconfirmed
+  // banner for a different atom in this SAME employment changes the id but not the
+  // (already-true) boolean, and a manually-collapsed card would otherwise never
+  // re-expand for that second click.
   $effect(() => {
-    if (forceExpanded) expanded = true;
+    if (forceExpanded && scrollToAtomId) expanded = true;
   });
 
   let isEditing = $state(false);

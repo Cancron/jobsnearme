@@ -195,7 +195,7 @@
         {#if atom.metrics?.length}
           <p class="mt-1 flex flex-wrap gap-1.5">
             {#each atom.metrics as metric (metric)}
-              <Chip class="font-mono">{metric}</Chip>
+              <Chip class="border-transparent font-mono">{metric}</Chip>
             {/each}
           </p>
         {/if}
@@ -212,13 +212,13 @@
         {#if atom.cluster_id || atom.needs_context || atom.needs_metrics}
           <p class="mt-1 flex flex-wrap gap-1.5">
             {#if atom.cluster_id}
-              <Chip>Looks similar to another</Chip>
+              <Chip class="border-transparent">Looks similar to another</Chip>
             {/if}
             {#if atom.needs_context}
-              <Chip>Thin on context</Chip>
+              <Chip class="border-transparent">Thin on context</Chip>
             {/if}
             {#if atom.needs_metrics}
-              <Chip>No number yet</Chip>
+              <Chip class="border-transparent">No number yet</Chip>
             {/if}
           </p>
         {/if}

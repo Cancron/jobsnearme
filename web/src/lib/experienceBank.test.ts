@@ -27,6 +27,14 @@ describe('findFirstUnconfirmed', () => {
     expect(findFirstUnconfirmed(b)).toEqual({ employmentId: 'e1', atomId: 'a2' });
   });
 
+  it('picks the leftmost of two unconfirmed atoms under the same employment', () => {
+    const b = bank([
+      employment('e1', [atom('a1'), atom('a2', 'agent_inferred'), atom('a3', 'agent_inferred')]),
+    ]);
+
+    expect(findFirstUnconfirmed(b)).toEqual({ employmentId: 'e1', atomId: 'a2' });
+  });
+
   it('finds an unconfirmed atom under a later employment when earlier ones have none', () => {
     const b = bank([
       employment('e1', [atom('a1')]),
