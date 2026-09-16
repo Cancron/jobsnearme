@@ -31,7 +31,7 @@ type meResponse struct {
 
 func fetchMe(t *testing.T, app *fiber.App, cookie string) meResponse {
 	t.Helper()
-	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
+	req := httptest.NewRequestWithContext(context.Background(), http.MethodGet, "/api/v1/auth/me", nil)
 	req.AddCookie(&http.Cookie{Name: auth.CookieName, Value: cookie})
 	resp, err := app.Test(req, 10_000)
 	if err != nil {
