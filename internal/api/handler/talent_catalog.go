@@ -122,8 +122,15 @@ func (h *talentCatalogHandlers) GetPhoto(c *fiber.Ctx) error {
 		// ErrNotStored (no headshot) and ErrStorageDisabled (storage unconfigured) both
 		// collapse into the same 404 a non-member gets — never the 501 the OWNER's own
 		// /me/photo/image route uses, which would tell a public caller storage is down
-		// as a fact distinct from "this member has no photo".
-		return fiber.NewError(fiber.StatusNotFound, "not found")
+		// as a fact distinct from "this member has no photo". Anything ELSE (a DB or
+		// blob-store fault) falls through to the ordinary error path instead of joining
+		// that same silent 404: collapsing those too would make a real outage
+		// indistinguishable from "no headshot" in every log and every alert, the same
+		// error-swallowing photo.go's mapPhotoError deliberately avoids.
+		if errors.Is(err, headshot.ErrNotStored) || errors.Is(err, headshot.ErrStorageDisabled) {
+			return fiber.NewError(fiber.StatusNotFound, "not found")
+		}
+		return err
 	}
 
 	blurred, err := headshot.Blur(data)
