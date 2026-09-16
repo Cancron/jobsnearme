@@ -278,11 +278,11 @@
               <span class="font-mono text-xs text-muted-foreground">{key.token_prefix}…</span>
               <span class="text-xs text-muted-foreground">
                 {s.list.createdPrefix}
-                {timeAgo(key.created_at)} ·
+                {timeAgo(key.created_at, locale())} ·
                 {key.last_used_at
-                  ? `${s.list.lastUsedPrefix} ${timeAgo(key.last_used_at)}`
+                  ? `${s.list.lastUsedPrefix} ${timeAgo(key.last_used_at, locale())}`
                   : s.list.neverUsed}
-                {#if key.expires_at}· {s.list.expiresPrefix} {timeAgo(key.expires_at)}{/if}
+                {#if key.expires_at}· {s.list.expiresPrefix} {timeAgo(key.expires_at, locale())}{/if}
               </span>
             </div>
             <Button variant="ghost" size="sm" onclick={() => requestRevoke(key)}>

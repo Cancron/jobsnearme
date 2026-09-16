@@ -7,6 +7,7 @@
   import { groupedStages, humanizeStage, offersDebrief } from '$lib/stages';
   import { canFollowUp } from '$lib/followup';
   import { CLOSED_OUTCOMES, type ClosedOutcome } from '$lib/board';
+  import { locale } from '$lib/i18n/currentLocale.svelte';
   import { timeAgo, errorMessage } from '$lib/utils';
   import { tablist } from '$lib/actions/tablist';
   import { cardTagsFromCard } from '$lib/enrichment';
@@ -680,7 +681,7 @@
                 {#each events as e (e.id)}
                   <li class="flex items-baseline gap-2">
                     <span class="shrink-0 text-xs {eventTone(e.kind)}" aria-hidden="true">●</span>
-                    <span class="w-24 shrink-0 text-xs text-muted-foreground">{timeAgo(e.occurred_at)}</span>
+                    <span class="w-24 shrink-0 text-xs text-muted-foreground">{timeAgo(e.occurred_at, locale())}</span>
                     <span class="min-w-0 text-sm">{eventLabel(e)}</span>
                   </li>
                 {/each}
@@ -794,7 +795,7 @@
                   <div class="min-w-0 flex-1">
                     <div class="flex items-baseline gap-2">
                       <span class="min-w-0 flex-1 truncate text-sm font-medium">{e.from_name || e.from_addr}</span>
-                      <span class="shrink-0 text-xs text-muted-foreground">{timeAgo(e.received_at)}</span>
+                      <span class="shrink-0 text-xs text-muted-foreground">{timeAgo(e.received_at, locale())}</span>
                     </div>
                     <div class="truncate text-sm text-muted-foreground">{e.subject || '(no subject)'}</div>
                     <!-- Marked on the row it belongs to, not only counted below it. The
@@ -850,7 +851,7 @@
                   <div class="min-w-0 flex-1">
                     <div class="flex items-baseline gap-2">
                       <span class="min-w-0 flex-1 truncate text-sm font-medium">{e.from_name || e.from_addr}</span>
-                      <span class="shrink-0 text-[11px] text-muted-foreground">{timeAgo(e.received_at)}</span>
+                      <span class="shrink-0 text-[11px] text-muted-foreground">{timeAgo(e.received_at, locale())}</span>
                     </div>
                     <div class="mt-0.5 truncate text-sm text-muted-foreground">{e.subject || '(no subject)'}</div>
                     {#if statusLabel(e.status_signal)}
