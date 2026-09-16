@@ -6,11 +6,10 @@
   import { isTalentNetworkMember } from '$lib/talentMembership';
   import { Button, Card } from '$lib/ui';
 
-  // The invitation into the Talent Network, on the profile page.
-  //
-  // It is here because this is where a candidate finishes describing themselves, which is
-  // the moment "be found without applying" is worth offering. It is the ONLY way in — the
-  // account navigation no longer carries a Talent Network entry of its own.
+  // The invitation into the Talent Network, mounted in /my/profile's LAYOUT next to
+  // AccountSetupCard — so it is on screen for all profile sections, not just the one the
+  // candidate happens to have open when they think to look for it. It is the ONLY way
+  // in — the account navigation no longer carries a Talent Network entry of its own.
   //
   // Read-only: it states where the candidate stands and links to the control. Joining is
   // a decision, and a decision belongs on the page that explains what it publishes.
