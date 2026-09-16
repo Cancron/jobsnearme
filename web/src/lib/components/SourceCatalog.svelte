@@ -1,5 +1,6 @@
 <script lang="ts">
   import { resolve } from '$app/paths';
+  import { locale } from '$lib/i18n/currentLocale.svelte';
   import { timeAgo } from '$lib/utils';
   // A source key is a search-facet code, so it renders through the one label map every
   // other surface uses: a source must not be "WhatJobs" on the filter panel and
@@ -166,7 +167,7 @@
         {count(totalJobs)} jobs indexed
       {/if}
       {#if measuredAt}
-        · counted {timeAgo(measuredAt, 'short')}
+        · counted {timeAgo(measuredAt, locale(), 'short')}
       {/if}
     </p>
   </div>
@@ -222,7 +223,7 @@
 
                   <p class="mt-1 font-mono text-xs text-muted-foreground">
                     {#if entry.health?.last_success}
-                      read {timeAgo(entry.health.last_success, 'short')}
+                      read {timeAgo(entry.health.last_success, locale(), 'short')}
                       {#if entry.health.ingested_total > 0}
                         · {count(entry.health.ingested_total)} ingested
                       {/if}
