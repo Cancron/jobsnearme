@@ -1286,6 +1286,10 @@ export interface UserProfile {
   seniorities: string[];
   /** Canonical skill tokens the user wants to avoid; seeded into the jobs filter's skills exclude set by "Apply my profile". Empty when the user excludes nothing. */
   excluded_skills: string[];
+  /** `jobs.source` values (the crawl adapter/board) the user wants to avoid. Empty when the user excludes none. */
+  excluded_sources: string[];
+  /** Company slugs the user wants to avoid. Empty when the user excludes none. */
+  excluded_companies: string[];
   location_preferences: LocationPreferences | null;
   /** Null when nothing was derived (no CV, no current structure, or a location the
    *  dictionary could not resolve). Used to pre-fill "where you're based" for a user who

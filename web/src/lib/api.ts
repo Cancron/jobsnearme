@@ -1817,7 +1817,7 @@ export function createApi(
 
   /** Create-or-replace the user's profile from a non-empty set of specializations (job
    *  categories), a non-empty set of skills, an optional set of seniorities (desired
-   *  levels; may be empty), an optional set of excluded skills (skills to avoid; may be
+   *  levels; may be empty), an optional set of excluded skills/sources/companies (may be
    *  empty), and an optional location-preferences block (null clears it). A bad
    *  specialization, empty skills, an unknown seniority, or an out-of-vocabulary location
    *  value is a 400. */
@@ -1826,6 +1826,8 @@ export function createApi(
     skills: string[],
     seniorities: string[],
     excludedSkills: string[],
+    excludedSources: string[],
+    excludedCompanies: string[],
     location: LocationPreferences | null,
   ): Promise<UserProfile> {
     return requestData<UserProfile>(
@@ -1835,6 +1837,8 @@ export function createApi(
         skills,
         seniorities,
         excluded_skills: excludedSkills,
+        excluded_sources: excludedSources,
+        excluded_companies: excludedCompanies,
         location_preferences: location,
       }),
     );

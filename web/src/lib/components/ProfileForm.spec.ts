@@ -12,6 +12,8 @@ const { extractResumeProfile, getPhoto, mergeResumeExtraction, profile } = vi.ho
     skills: ['go'],
     seniorities: [],
     excluded_skills: [],
+    excluded_sources: [],
+    excluded_companies: [],
     location_preferences: null,
     derived_location: null,
     cv: null,

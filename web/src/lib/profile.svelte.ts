@@ -15,6 +15,7 @@ import {
   withoutAvoidedSkill,
   type ProfileSkillSets,
 } from '$lib/profileSkills';
+import { withExcluded, withoutExcluded } from '$lib/profileExclusions';
 import { serialQueue } from '$lib/serialQueue';
 import { UserResource } from '$lib/userResource.svelte';
 import type { LocationPreferences, UserProfile } from '$lib/types';
@@ -61,18 +62,28 @@ class ProfileStore extends UserResource<UserProfile | null> {
   }
 
   /** Create-or-replace the profile. `seniorities` are the desired experience levels (may be
-   *  empty). `excludedSkills` are the skills to avoid (may be empty). `location` is the
-   *  optional location-preferences block (null clears it). Throws on a bad specialization,
-   *  empty skills, an unknown seniority, or an out-of-vocabulary location value (the caller
-   *  shows the error). */
+   *  empty). `excludedSkills`/`excludedSources`/`excludedCompanies` are what to avoid (each
+   *  may be empty). `location` is the optional location-preferences block (null clears it).
+   *  Throws on a bad specialization, empty skills, an unknown seniority, an over-cap
+   *  excluded set, or an out-of-vocabulary location value (the caller shows the error). */
   async save(
     specializations: string[],
     skills: string[],
     seniorities: string[],
     excludedSkills: string[],
+    excludedSources: string[],
+    excludedCompanies: string[],
     location: LocationPreferences | null,
   ): Promise<UserProfile> {
-    const row = await api.saveProfile(specializations, skills, seniorities, excludedSkills, location);
+    const row = await api.saveProfile(
+      specializations,
+      skills,
+      seniorities,
+      excludedSkills,
+      excludedSources,
+      excludedCompanies,
+      location,
+    );
     this.#profile = row;
     this.markLoaded();
     return row;
@@ -101,7 +112,15 @@ class ProfileStore extends UserResource<UserProfile | null> {
       const current = this.#profile;
       if (!current) return Promise.reject(new Error('No profile to edit.'));
       const sets = withSkills(current, newSkills);
-      return this.save(specializations, sets.skills, current.seniorities, sets.excluded_skills, current.location_preferences);
+      return this.save(
+        specializations,
+        sets.skills,
+        current.seniorities,
+        sets.excluded_skills,
+        current.excluded_sources,
+        current.excluded_companies,
+        current.location_preferences,
+      );
     });
   }
 
@@ -122,13 +141,42 @@ class ProfileStore extends UserResource<UserProfile | null> {
     return this.#queue(() => this.#writeSkills((sets) => withoutAvoidedSkill(sets, skill)));
   }
 
+  /** Record a source (a `jobs.source` value) as one to avoid. Unlike skills, there is no
+   *  "wanted sources" list to reconcile against — this only ever adds to the one list. */
+  avoidSource(source: string): Promise<UserProfile> {
+    return this.#queue(() => this.#writeExcludedSources((sources) => withExcluded(sources, source)));
+  }
+
+  /** Stop avoiding a source. */
+  unavoidSource(source: string): Promise<UserProfile> {
+    return this.#queue(() => this.#writeExcludedSources((sources) => withoutExcluded(sources, source)));
+  }
+
+  /** Record a company (by slug) as one to avoid. */
+  avoidCompany(company: string): Promise<UserProfile> {
+    return this.#queue(() => this.#writeExcludedCompanies((companies) => withExcluded(companies, company)));
+  }
+
+  /** Stop avoiding a company. */
+  unavoidCompany(company: string): Promise<UserProfile> {
+    return this.#queue(() => this.#writeExcludedCompanies((companies) => withoutExcluded(companies, company)));
+  }
+
   /** Re-save the profile with an edited specializations list — what the Roles card
    *  writes when you add or remove one. Rejects when there is no profile. */
   updateSpecializations(specializations: string[]): Promise<UserProfile> {
     return this.#queue(() => {
       const current = this.#profile;
       if (!current) return Promise.reject(new Error('No profile to edit.'));
-      return this.save(specializations, current.skills, current.seniorities, current.excluded_skills, current.location_preferences);
+      return this.save(
+        specializations,
+        current.skills,
+        current.seniorities,
+        current.excluded_skills,
+        current.excluded_sources,
+        current.excluded_companies,
+        current.location_preferences,
+      );
     });
   }
 
@@ -138,7 +186,15 @@ class ProfileStore extends UserResource<UserProfile | null> {
     return this.#queue(() => {
       const current = this.#profile;
       if (!current) return Promise.reject(new Error('No profile to edit.'));
-      return this.save(current.specializations, current.skills, seniorities, current.excluded_skills, current.location_preferences);
+      return this.save(
+        current.specializations,
+        current.skills,
+        seniorities,
+        current.excluded_skills,
+        current.excluded_sources,
+        current.excluded_companies,
+        current.location_preferences,
+      );
     });
   }
 
@@ -148,7 +204,15 @@ class ProfileStore extends UserResource<UserProfile | null> {
     return this.#queue(() => {
       const current = this.#profile;
       if (!current) return Promise.reject(new Error('No profile to edit.'));
-      return this.save(current.specializations, current.skills, current.seniorities, current.excluded_skills, location);
+      return this.save(
+        current.specializations,
+        current.skills,
+        current.seniorities,
+        current.excluded_skills,
+        current.excluded_sources,
+        current.excluded_companies,
+        location,
+      );
     });
   }
 
@@ -164,6 +228,40 @@ class ProfileStore extends UserResource<UserProfile | null> {
       next.skills,
       current.seniorities,
       next.excluded_skills,
+      current.excluded_sources,
+      current.excluded_companies,
+      current.location_preferences,
+    );
+  }
+
+  /** Re-save the profile with an edited excluded_sources list. Reads `#profile` at call
+   *  time — inside the queue — mirroring `#writeSkills`. */
+  #writeExcludedSources(edit: (sources: string[]) => string[]): Promise<UserProfile> {
+    const current = this.#profile;
+    if (!current) return Promise.reject(new Error('No profile to edit.'));
+    return this.save(
+      current.specializations,
+      current.skills,
+      current.seniorities,
+      current.excluded_skills,
+      edit(current.excluded_sources),
+      current.excluded_companies,
+      current.location_preferences,
+    );
+  }
+
+  /** Re-save the profile with an edited excluded_companies list. Mirrors
+   *  `#writeExcludedSources`. */
+  #writeExcludedCompanies(edit: (companies: string[]) => string[]): Promise<UserProfile> {
+    const current = this.#profile;
+    if (!current) return Promise.reject(new Error('No profile to edit.'));
+    return this.save(
+      current.specializations,
+      current.skills,
+      current.seniorities,
+      current.excluded_skills,
+      current.excluded_sources,
+      edit(current.excluded_companies),
       current.location_preferences,
     );
   }

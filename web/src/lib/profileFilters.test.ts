@@ -14,6 +14,8 @@ function mkProfile(
     skills,
     seniorities: [],
     excluded_skills: excludedSkills,
+    excluded_sources: [],
+    excluded_companies: [],
     location_preferences: location,
     derived_location: null,
     cv: null,
