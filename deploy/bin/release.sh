@@ -248,7 +248,12 @@ if [ "$app" = freehire ]; then
   # missing credential fail the same silent way: every run exits 0 having reminded nobody.
   # A missed reminder costs somebody the session, which is why it is on this list rather
   # than built by hand after the fact.
-  for w in migrate onboarding broadcast ingest enrich embed similar-backfill search-drain reindex reindex-companies import-collections import-yc import-company-industries queue-metrics tg-ingest tg-extract liveness llm-probe notify remind nudge apple-revoke auth-cleanup capture-apply-form backfill-derive backfill-company-names backfill-descriptions backfill-application-events backfill-slug-folded backfill-duplicate-marker-owner backfill-company-type-hint backfill-requirements billing-sync build-suggestions merge-companies add-board harvest-orphans recount-companies rollup-stats rollup-facets rollup-company rollup-views classify-mail resolve-url gmail-sync cal-sync mail-ingest hydrate-adzuna-description seed-adzuna-description-queue ingest-scheduler schedule-board auto-apply-orchestrate auto-apply social-digest discord-sync mentorship-remind linkedin-auth linkedin-token-refresh; do
+  # pro-welcome-mail joined 2026-09-15 with the welcome-pro-subscribers change: it welcomes
+  # a newly-paying account once, on its own 10-minute timer. Inert without AWS_REGION/
+  # NOTIFY_EMAIL_FROM (a no-op that never opens the pool) the same way discord-sync is
+  # inert without its DISCORD_* values — so, same as that entry, a release that builds it
+  # on a host missing the transport costs one binary and changes nothing.
+  for w in migrate onboarding broadcast ingest enrich embed similar-backfill search-drain reindex reindex-companies import-collections import-yc import-company-industries queue-metrics tg-ingest tg-extract liveness llm-probe notify remind nudge apple-revoke auth-cleanup capture-apply-form backfill-derive backfill-company-names backfill-descriptions backfill-application-events backfill-slug-folded backfill-duplicate-marker-owner backfill-company-type-hint backfill-requirements billing-sync build-suggestions merge-companies add-board harvest-orphans recount-companies rollup-stats rollup-facets rollup-company rollup-views classify-mail resolve-url gmail-sync cal-sync mail-ingest hydrate-adzuna-description seed-adzuna-description-queue ingest-scheduler schedule-board auto-apply-orchestrate auto-apply social-digest discord-sync mentorship-remind linkedin-auth linkedin-token-refresh pro-welcome-mail; do
     sudo -u freehire /usr/local/bin/go build -buildvcs=false -o "$w" "./cmd/$w"
   done
   # Every binary a freehire-*.service starts from hire-current has to have just been built,

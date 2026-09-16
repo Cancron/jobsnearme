@@ -3680,6 +3680,18 @@ type Querier interface {
 	// reviewed it under — the write dialog's "which categories have I already
 	// used" read. Not filtered by status, same reasoning as GetMyCompanyFeedback.
 	ListMyCompanyFeedback(ctx context.Context, arg ListMyCompanyFeedbackParams) ([]CompanyFeedback, error)
+	// Accounts currently entitled to a paying tier (pro or ultra, per the same
+	// pro_until/ultra_until this whole file resolves everything else from) that have not yet
+	// received the one-time welcome email. cmd/pro-welcome-mail's candidate page.
+	//
+	// pro_until/ultra_until, not the three per-provider sources: this asks the same question
+	// plan.TierOf answers everywhere else, so a manual grant or a store subscription reaches a
+	// welcome exactly like a Stripe one does.
+	//
+	// Ordered by id for a stable, resumable page — the candidate set is small and every row
+	// returned here is claimed (pro_welcome_sent_at stamped) before the next page is read, so
+	// there is no starvation risk the way a NULLS-FIRST stamp order guards against elsewhere.
+	ListNewlyPayingUsersMissingWelcomeEmail(ctx context.Context, maxRows int32) ([]ListNewlyPayingUsersMissingWelcomeEmailRow, error)
 	// Greeted a while ago, and still without an active alert — the one action the
 	// product is built around.
 	//
@@ -5683,6 +5695,10 @@ type Querier interface {
 	// the whole reason it is separate — before migration 0135 a hand-set value lived in the
 	// column the Stripe sync overwrites, and the next webhook silently undid it.
 	SetProUntilGranted(ctx context.Context, arg SetProUntilGrantedParams) error
+	// Claims the welcome send for one account. Guarded by IS NULL so a concurrent or repeated
+	// run never re-sends: 0 rows affected means somebody already claimed it, which the caller
+	// treats as "already welcomed", not as an error.
+	SetProWelcomeSent(ctx context.Context, id int64) (int64, error)
 	// How far the APP STORE or GOOGLE PLAY subscription reaches, for every tier. Written only by
 	// the RevenueCat sync, and only over its own source columns, for the same reason the Stripe
 	// setter is confined to its own: neither provider may answer for a plan it did not sell.

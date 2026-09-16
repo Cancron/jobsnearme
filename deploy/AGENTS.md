@@ -152,10 +152,11 @@ a scheduled Dependabot run made every deploy stop, silently, at exit 0.
   `/opt/freehire/.env`; the mail credentials (`NOTIFY_EMAIL_FROM` plus the SES keys) live
   ONLY in `/opt/freehire/.env.notify`. A worker that sends mail and reads just the first
   loses its email channel — and does not fail, because "channel not configured" is a
-  deliberate soft-skip. **The six workers that send mail are `notify`, `nudge`, `remind`,
-  `broadcast`, `onboarding` and `mentorship-remind`**, and each must read both files.
-  `remind` and `nudge` did not, from the day they shipped until 2026-09-01: 244 email
-  reminders piled up unsent across 43 people while every run exited 0 with `failed=0`.
+  deliberate soft-skip. **The seven workers that send mail are `notify`, `nudge`, `remind`,
+  `broadcast`, `onboarding`, `mentorship-remind` and `pro-welcome-mail`**, and each must
+  read both files. `remind` and `nudge` did not, from the day they shipped until
+  2026-09-01: 244 email reminders piled up unsent across 43 people while every run exited
+  0 with `failed=0`.
   Neither env file is in git and neither should be.
 - **A `.d/` drop-in beside a unit is how the host adds to it**, and both spellings are in
   use here: `mail.conf` adds the env file above, `10-timeout.conf` and
