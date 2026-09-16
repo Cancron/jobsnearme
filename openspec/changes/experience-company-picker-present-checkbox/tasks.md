@@ -24,9 +24,9 @@
 
 ## 5. Edit form: "I currently work here"
 
-- [ ] 5.1 Extend `ExperienceEmploymentCard.spec.ts` with a failing test: for a `kind: 'job'` employment, `startEdit` pre-checks the control when `employment.current` is true; checking/unchecking it toggles the End-date input the same way as the add-job form; for `kind: 'project'`, no such control is rendered at all.
-- [ ] 5.2 Add `empCurrent = $state(false)`, initialize it from `employment.current ?? false` in `startEdit()`, and render the checkbox + conditional End `PeriodDateInput` only when `employment.kind === 'job'`.
-- [ ] 5.3 Pass `current: empCurrent` in `saveEdit`'s body for job-kind employments (project-kind body construction is unchanged).
+- [x] 5.1 Extend `ExperienceEmploymentCard.spec.ts` with a failing test: for a `kind: 'job'` employment, `startEdit` pre-checks the control when `employment.current` is true; checking/unchecking it toggles the End-date input the same way as the add-job form; for `kind: 'project'`, no such control is rendered at all.
+- [x] 5.2 Add `empCurrent = $state(false)`, initialize it from `employment.current ?? false` in `startEdit()`, and render the checkbox + conditional End `PeriodDateInput` only when `employment.kind === 'job'`.
+- [x] 5.3 Pass `current: empCurrent` in `saveEdit`'s body for job-kind employments (project-kind body construction is unchanged).
 
 ## 6. Verification
 

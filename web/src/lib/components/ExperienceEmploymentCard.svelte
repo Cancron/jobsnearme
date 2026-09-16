@@ -84,6 +84,7 @@
   let empLink = $state('');
   let empStart = $state<PeriodDate | undefined>(undefined);
   let empEnd = $state<PeriodDate | undefined>(undefined);
+  let empCurrent = $state(false);
 
   function startEdit() {
     empName =
@@ -97,6 +98,7 @@
     empLink = employment.link || '';
     empStart = employment.start;
     empEnd = employment.end;
+    empCurrent = employment.current ?? false;
     isEditing = true;
   }
 
@@ -124,6 +126,8 @@
       body.company = empName.trim();
       body.role = empRole.trim() || undefined;
       body.location = empLocation.trim() || undefined;
+      body.end = empCurrent ? undefined : empEnd;
+      body.current = empCurrent;
     }
     if (await onSaveEmployment(employment, body)) {
       isEditing = false;
@@ -181,8 +185,16 @@
             {/if}
             <div class="flex gap-2">
               <PeriodDateInput bind:value={empStart} placeholder="Start" />
-              <PeriodDateInput bind:value={empEnd} placeholder="End" />
+              {#if !(employment.kind === 'job' && empCurrent)}
+                <PeriodDateInput bind:value={empEnd} placeholder="End" />
+              {/if}
             </div>
+            {#if employment.kind === 'job'}
+              <label class="flex items-center gap-2 text-sm">
+                <input type="checkbox" bind:checked={empCurrent} class="h-4 w-4" />
+                <span class="text-muted-foreground">I currently work here</span>
+              </label>
+            {/if}
             <FormField label="Summary" hint="Optional">
               {#snippet children({ id, describedBy })}
                 <textarea

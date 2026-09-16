@@ -27,6 +27,12 @@ const jobEmployment: ExperienceEmploymentWithAtoms = {
   atoms: [],
 };
 
+const currentJobEmployment: ExperienceEmploymentWithAtoms = {
+  ...jobEmployment,
+  id: 'e3',
+  current: true,
+};
+
 const projectEmployment: ExperienceEmploymentWithAtoms = {
   id: 'e2',
   kind: 'project',
@@ -74,5 +80,58 @@ describe('ExperienceEmploymentCard edit form', () => {
 
     expect(listCompanies).not.toHaveBeenCalled();
     expect(screen.queryByRole('listbox')).toBeNull();
+  });
+
+  it('pre-checks "I currently work here" and hides the End date for an already-current job', async () => {
+    render(ExperienceEmploymentCard, { props: baseProps(currentJobEmployment) });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    expect(screen.getByLabelText<HTMLInputElement>('I currently work here').checked).toBe(true);
+    expect(screen.queryByPlaceholderText('End')).toBeNull();
+  });
+
+  it('unchecking restores the End date and saves as not current', async () => {
+    const onSaveEmployment = vi.fn().mockResolvedValue(true);
+    render(ExperienceEmploymentCard, {
+      props: { ...baseProps(currentJobEmployment), onSaveEmployment },
+    });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.click(screen.getByLabelText('I currently work here'));
+
+    expect(screen.getByPlaceholderText('End')).toBeTruthy();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onSaveEmployment).toHaveBeenCalledWith(
+      currentJobEmployment,
+      expect.objectContaining({ current: false }),
+    );
+  });
+
+  it('checking hides the End date and saves as current', async () => {
+    const onSaveEmployment = vi.fn().mockResolvedValue(true);
+    render(ExperienceEmploymentCard, { props: { ...baseProps(jobEmployment), onSaveEmployment } });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    await fireEvent.click(screen.getByLabelText('I currently work here'));
+
+    expect(screen.queryByPlaceholderText('End')).toBeNull();
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    expect(onSaveEmployment).toHaveBeenCalledWith(
+      jobEmployment,
+      expect.objectContaining({ current: true, end: undefined }),
+    );
+  });
+
+  it('has no "I currently work here" control for a project-kind entry', async () => {
+    render(ExperienceEmploymentCard, { props: baseProps(projectEmployment) });
+
+    await fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    expect(screen.queryByLabelText('I currently work here')).toBeNull();
   });
 });
