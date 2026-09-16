@@ -112,15 +112,11 @@ class ProfileStore extends UserResource<UserProfile | null> {
       const current = this.#profile;
       if (!current) return Promise.reject(new Error('No profile to edit.'));
       const sets = withSkills(current, newSkills);
-      return this.save(
+      return this.#saveFrom(current, {
         specializations,
-        sets.skills,
-        current.seniorities,
-        sets.excluded_skills,
-        current.excluded_sources,
-        current.excluded_companies,
-        current.location_preferences,
-      );
+        skills: sets.skills,
+        excluded_skills: sets.excluded_skills,
+      });
     });
   }
 
@@ -168,15 +164,7 @@ class ProfileStore extends UserResource<UserProfile | null> {
     return this.#queue(() => {
       const current = this.#profile;
       if (!current) return Promise.reject(new Error('No profile to edit.'));
-      return this.save(
-        specializations,
-        current.skills,
-        current.seniorities,
-        current.excluded_skills,
-        current.excluded_sources,
-        current.excluded_companies,
-        current.location_preferences,
-      );
+      return this.#saveFrom(current, { specializations });
     });
   }
 
@@ -186,15 +174,7 @@ class ProfileStore extends UserResource<UserProfile | null> {
     return this.#queue(() => {
       const current = this.#profile;
       if (!current) return Promise.reject(new Error('No profile to edit.'));
-      return this.save(
-        current.specializations,
-        current.skills,
-        seniorities,
-        current.excluded_skills,
-        current.excluded_sources,
-        current.excluded_companies,
-        current.location_preferences,
-      );
+      return this.#saveFrom(current, { seniorities });
     });
   }
 
@@ -204,15 +184,7 @@ class ProfileStore extends UserResource<UserProfile | null> {
     return this.#queue(() => {
       const current = this.#profile;
       if (!current) return Promise.reject(new Error('No profile to edit.'));
-      return this.save(
-        current.specializations,
-        current.skills,
-        current.seniorities,
-        current.excluded_skills,
-        current.excluded_sources,
-        current.excluded_companies,
-        location,
-      );
+      return this.#saveFrom(current, { location_preferences: location });
     });
   }
 
@@ -223,46 +195,50 @@ class ProfileStore extends UserResource<UserProfile | null> {
     const current = this.#profile;
     if (!current) return Promise.reject(new Error('No profile to edit.'));
     const next = edit(current);
-    return this.save(
-      current.specializations,
-      next.skills,
-      current.seniorities,
-      next.excluded_skills,
-      current.excluded_sources,
-      current.excluded_companies,
-      current.location_preferences,
-    );
+    return this.#saveFrom(current, { skills: next.skills, excluded_skills: next.excluded_skills });
   }
 
-  /** Re-save the profile with an edited excluded_sources list. Reads `#profile` at call
-   *  time — inside the queue — mirroring `#writeSkills`. */
+  /** Re-save the profile with an edited excluded_sources list. Mirrors `#writeSkills`. */
   #writeExcludedSources(edit: (sources: string[]) => string[]): Promise<UserProfile> {
     const current = this.#profile;
     if (!current) return Promise.reject(new Error('No profile to edit.'));
-    return this.save(
-      current.specializations,
-      current.skills,
-      current.seniorities,
-      current.excluded_skills,
-      edit(current.excluded_sources),
-      current.excluded_companies,
-      current.location_preferences,
-    );
+    return this.#saveFrom(current, { excluded_sources: edit(current.excluded_sources) });
   }
 
-  /** Re-save the profile with an edited excluded_companies list. Mirrors
-   *  `#writeExcludedSources`. */
+  /** Re-save the profile with an edited excluded_companies list. Mirrors `#writeSkills`. */
   #writeExcludedCompanies(edit: (companies: string[]) => string[]): Promise<UserProfile> {
     const current = this.#profile;
     if (!current) return Promise.reject(new Error('No profile to edit.'));
+    return this.#saveFrom(current, { excluded_companies: edit(current.excluded_companies) });
+  }
+
+  /** Re-saves `current` with `overrides` applied field by field — the shared tail every
+   *  write method above ends with, so `save()`'s positional argument list has exactly one
+   *  place that maps it from a profile shape, not one per caller. */
+  #saveFrom(
+    current: UserProfile,
+    overrides: Partial<
+      Pick<
+        UserProfile,
+        | 'specializations'
+        | 'skills'
+        | 'seniorities'
+        | 'excluded_skills'
+        | 'excluded_sources'
+        | 'excluded_companies'
+        | 'location_preferences'
+      >
+    >,
+  ): Promise<UserProfile> {
+    const next = { ...current, ...overrides };
     return this.save(
-      current.specializations,
-      current.skills,
-      current.seniorities,
-      current.excluded_skills,
-      current.excluded_sources,
-      edit(current.excluded_companies),
-      current.location_preferences,
+      next.specializations,
+      next.skills,
+      next.seniorities,
+      next.excluded_skills,
+      next.excluded_sources,
+      next.excluded_companies,
+      next.location_preferences,
     );
   }
 }
