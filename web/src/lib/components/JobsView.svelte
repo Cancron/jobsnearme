@@ -362,7 +362,7 @@
             role: plan.facets.map(([, v]) => v).join('+') || plan.q,
             kind: 'completion',
           });
-          filters.applyParts(plan.facets, plan.q ?? '');
+          filters.applyParts(plan.facets, plan.q ?? '', plan.qFields ?? null);
         },
       },
       openFilters: () => (modalOpen = true),

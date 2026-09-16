@@ -75,10 +75,10 @@ Three directions were weighed:
 recorder only.**
 
 `apiSuggestions.ts` already owns turning a suggestion's parts into `plan.q` /
-`plan.facets` (`applyParams`), and `browseTarget.ts` already turns a plan into `/jobs`
-URL params — both already the single place this logic lives, so the title branch of
-`applyParams` gains the quoting and a field-restriction, and `browseTarget.ts` threads
-the restriction through as `q_fields=title`. No new API surface.
+`plan.facets` (`applyParams`), so the title branch gains the quoting and a
+field-restriction (`plan.qFields`). No new API surface — `q_fields` already exists
+server-side. **This is one of two consumers of `ApplyPlan`; see the Addendum below for
+the other, found during review.**
 
 The one place this leaks is `recordQuery` (`internal/api/handler/search.go`), which
 records `c.Query("q")` — the same raw string Meilisearch received — for demand
@@ -130,3 +130,56 @@ half is meaningful without the other (the frontend change alone would search
 correctly but pollute demand tracking on every suggestion click; the backend
 `recordQuery` fix alone has nothing to strip until the frontend sends quoted queries).
 Rollback is a plain revert, since no persisted data shape changed.
+
+## Addendum: the in-place list search was a second, unfixed consumer
+
+Code review (before merge) traced `ApplyPlan`'s full consumer graph and found the
+original design was wrong that `apiSuggestions.ts`/`browseTarget.ts` are "the single
+place this logic lives": that is true only for the launcher, which always NAVIGATES to
+`/jobs` and builds the URL from scratch. A title suggestion applied while already ON a
+list page — `/jobs` itself, a company's job list (`CompanyView.svelte`), a role/country
+page, or a collection — goes through a different path entirely:
+`HeaderSearch.svelte`'s dropdown calls the list's own `suggest.applyParts`, which
+`JobsView.svelte:360-366` wires to `FilterStore.applyParts(plan.facets, plan.q ?? '')`
+— dropping `plan.qFields` on the floor. Worse, even fixing that one call site would not
+be enough: `FilterStore` is built entirely on `JobFilters`/`filtersToParams`/
+`filtersFromParams` (`facetModel.ts`), which had no field for a query-scoped
+restriction, so nothing downstream — `scopedParams()` (the live search/facet-count
+requests), `filters.params` (what `Pagination.svelte`'s links are built from) — had
+anywhere to carry it even if `JobsView.svelte` passed it along. The result: the exact
+count-mismatch bug this change exists to fix, reproduced on the more common of the two
+suggestion-application paths, and reproduced again on page 2 of the ONE path
+(launcher → `/jobs`) that did work, since pagination rebuilds its query from
+`FilterStore`, not from the original navigation URL.
+
+**Resolution: `qFields` becomes a real, first-class `JobFilters` field**
+(`string[] | null`, matching the `salaryMin`/`postedWithinDays` null-means-unset
+convention used throughout that type), rather than a value threaded around outside it.
+This was chosen over the alternative of keeping it as a transient, non-persisted
+side-channel (e.g. a field on `FilterStore` excluded from `.params`): making it a real
+`JobFilters` field means every existing consumer of `filtersToParams`/`.params`/
+`scopedParams()` — pagination, facet-count requests, saved searches, `localStorage`
+persistence — carries it automatically, with no new plumbing at each call site. The one
+risk this creates (a restriction outliving the search it was scoped to, e.g. if a
+visitor types a brand new query into the same box afterward) is closed by having
+`FilterStore.setQuery`/`commitQuery` — the only other writers of `q` — clear `qFields`
+whenever `q` is set outside of `applyParts`. `filtersWithParts` (which `applyParts`
+calls) replaces `qFields` rather than merging it, for the same reason: a suggestion
+with no title part must not inherit a PREVIOUS suggestion's restriction.
+
+A saved search or shared link created while a title-suggestion-driven restriction was
+active now carries `q_fields` too (via `savedSearchQuery`/`filtersToParams`) — judged
+correct, not a side effect to guard against: the restriction is part of what was
+actually searched, so a saved search reproducing it exactly is the expected behaviour,
+the same way it already reproduces `q` itself.
+
+**Not covered, deliberately**: `FilterStore`'s SvelteKit/Svelte-5-runes dependency
+(`urlSynced.svelte.ts`) means it cannot run under this project's plain-Node vitest
+config (see `vitest.config.ts`'s own comment on why), so `FilterStore.applyParts`/
+`setQuery`/`commitQuery` and the `JobsView.svelte` call site are not covered by an
+automated test — the same pre-existing boundary the rest of `FilterStore` already sits
+behind (no `filters.test.ts` exists for it today). The actual logic these three now
+carry (setting/clearing `qFields`) is a thin pass-through to `filtersWithParts`, which
+IS fully unit-tested in `facetModel.test.ts`. Closing that boundary for the whole class
+would be a much larger, separate undertaking (a Svelte-aware test harness for every
+`FilterStore` method) disproportionate to this change.

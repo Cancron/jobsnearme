@@ -30,24 +30,55 @@
 - [x] 2.3 Run `go test ./internal/api/handler/...` and confirm the new test passes
       alongside the existing suite.
 
-## 3. Verification
+## 3. In-place list search + pagination (found in code review)
 
-- [x] 3.1 `go build ./... && go vet ./...` and `go test ./...` clean (one pre-existing,
+Code review found the launcher-only fix (sections 1-2) does not cover applying a
+title suggestion while already on a list page (`/jobs`, a company's job list, a
+role/country page, a collection), nor pagination/facet/sort changes afterward, both
+of which reproduce the original bug. See design.md's Addendum.
+
+- [x] 3.1 In `web/src/lib/facetModel.test.ts`, add failing tests: `filtersToParams`
+      serializes `qFields` as `q_fields`; `filtersFromParams` parses it back (and
+      reads its absence as `null`, not `[]`); the two round-trip; `filtersWithParts`
+      sets `qFields` when given and clears a previous one when not.
+- [x] 3.2 Add `qFields: string[] | null` to `JobFilters` (`facetModel.ts`), wire it
+      through `emptyFilters`, `filtersToParams`, `filtersFromParams`, and
+      `filtersWithParts` (replace, not merge — a suggestion with no title part clears
+      any prior restriction).
+- [x] 3.3 Update `FilterStore.applyParts` (`filters.ts`) to accept and thread
+      `qFields` through to `filtersWithParts`; update `setQuery`/`commitQuery` to
+      clear `qFields` when a query is set independently of a suggestion pick.
+- [x] 3.4 Update `JobsView.svelte`'s `applyParts` callback to pass `plan.qFields`
+      through to `filters.applyParts`.
+- [x] 3.5 Run `npx svelte-check` across `web/` to confirm the new required
+      `JobFilters.qFields` field breaks no existing call site.
+- [x] 3.6 Run the full web test suite and confirm no regressions.
+
+`FilterStore`'s methods and the `JobsView.svelte` call site are not independently
+unit-tested (the class depends on Svelte 5 runes and SvelteKit modules this
+project's plain-Node vitest config cannot load — the same pre-existing boundary the
+rest of `FilterStore` already sits behind). The logic they carry is a thin
+pass-through to `filtersWithParts`, which IS fully covered above.
+
+## 4. Verification
+
+- [x] 4.1 `go build ./... && go vet ./...` and `go test ./...` clean (one pre-existing,
       unrelated failure: `cmd/billing-sync`'s `TestTheStoreProviderAloneKeepsTheWorkerRunning`
       fails in this environment because an ambient local Postgres on :5432, not this
       change, answers when the test clears `DATABASE_URL` — not touched by this diff).
-- [x] 3.2 `gofmt -l .` prints nothing for touched Go files.
-- [ ] 3.3 (Deferred — see note) Manually verify against a live stack: type "Founding
+- [x] 4.2 `gofmt -l .` prints nothing for touched Go files; `npx eslint` clean on
+      touched frontend files.
+- [ ] 4.3 (Deferred — see note) Manually verify against a live stack: type "Founding
       Engineer" (or another known-mismatched phrase) in the search box, click the
-      title suggestion, and confirm the resulting `/jobs` URL carries a quoted,
-      title-scoped query and that the result count is close to the suggestion's
-      displayed count rather than an order of magnitude larger. Skipped in this
+      title suggestion — both from the launcher and while already on `/jobs` — page
+      forward, and confirm the request stays quoted and title-scoped throughout, with
+      a result count close to the suggestion's displayed count. Skipped in this
       session — it needs a stack with real, indexed catalogue data (`make up` +
       seeding + a `cmd/build-suggestions` run), which is disproportionate
       infrastructure to stand up for a fix already covered end-to-end by unit tests.
       Do this once against staging or after deploy, not by standing up a local stack
       just for it.
-- [x] 3.4 Confirm a suggestion click's search still appears under its plain
+- [x] 4.4 Confirm a suggestion click's search still appears under its plain
       (unquoted) form in `search_queries` rather than under a quoted variant —
       proven deterministically by `TestDemandKey_StripsMatchingQuotePairBeforeNormalising`
       (2.1); no live-DB spot-check needed.

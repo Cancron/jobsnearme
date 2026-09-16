@@ -47,3 +47,28 @@ produces and neither its application nor its count computation changes.
 - **WHEN** a visitor applies a skill, category, or company suggestion
 - **THEN** it is applied as an exact facet filter, exactly as before this
   change, and its displayed count is unaffected
+
+#### Scenario: The restriction applies from the launcher and from a list page
+
+- **WHEN** a visitor applies a title suggestion while already viewing a job list
+  (`/jobs`, a company's job list, a role/country page, or a collection), not
+  only when navigating to one from elsewhere
+- **THEN** the search that list runs is quoted and restricted to the title
+  field, the same as a launcher-driven navigation to `/jobs`
+
+#### Scenario: The restriction survives further interaction with that same list
+
+- **WHEN** a visitor pages forward, changes a facet, or changes the sort order
+  on a list whose current search came from applying a title suggestion
+- **THEN** the request for the next page/facet-count/sort still carries the
+  same quoted, title-restricted query — it does not silently widen back to an
+  unscoped, multi-field match
+
+#### Scenario: Typing a new query clears an inherited restriction
+
+- **WHEN** a visitor edits the search box directly (typing, the header's
+  Enter, or its clear button) after a title suggestion's restriction is
+  active
+- **THEN** the new search is NOT restricted to the title field — the
+  restriction was scoped to the suggestion that set it, not a general
+  preference for future searches

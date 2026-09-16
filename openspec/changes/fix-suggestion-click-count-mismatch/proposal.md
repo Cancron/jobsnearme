@@ -28,6 +28,12 @@ today it is not one.
 - Skill, category, and company suggestions are unaffected: they already apply as
   exact facet filters against the same index the count was computed from, so their
   displayed count already matches what a click produces.
+- The field restriction also has to survive applying a suggestion while already on a
+  list page (`/jobs`, a company's job list, a role/country page, a collection) — a
+  second, separate consumer of a suggestion pick from the launcher-only navigation path
+  — and survive pagination/facet/sort changes afterward. See design.md's Addendum: this
+  made `qFields` a first-class `JobFilters` field rather than something threaded past
+  it, found during code review after the launcher-only fix looked complete.
 
 ## Capabilities
 
@@ -48,7 +54,16 @@ today it is not one.
   quoted string, and the plan carries a title-only field restriction.
 - `web/src/lib/browseTarget.ts` (`browseQuery`): passes the field restriction through
   to the `/jobs` URL as `q_fields=title` (an existing, already-shipped public param —
-  see `search-q-field-scoping`).
+  see `search-q-field-scoping`) — the launcher-driven navigation path.
+- `web/src/lib/facetModel.ts` (`JobFilters`, `filtersToParams`, `filtersFromParams`,
+  `filtersWithParts`): `qFields` becomes a first-class, URL-persisted filter field, so
+  every existing consumer of the filter model (pagination, facet counts, saved
+  searches) carries the restriction automatically — the in-place list search path.
+- `web/src/lib/filters.ts` (`FilterStore.applyParts`/`setQuery`/`commitQuery`): thread
+  `qFields` through, and clear it whenever a query is set independently of a
+  suggestion pick.
+- `web/src/lib/components/JobsView.svelte`: passes a suggestion's `qFields` through to
+  `FilterStore.applyParts`.
 - `internal/api/handler/search.go` (`recordQuery`): strips the quoting wrapper before
   calling `suggest.Title`, so demand tracking is unaffected by the new mechanism.
 - No change to `cmd/build-suggestions`, the nightly dictionary build, or the
