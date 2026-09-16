@@ -53,6 +53,12 @@ of which reproduce the original bug. See design.md's Addendum.
 - [x] 3.5 Run `npx svelte-check` across `web/` to confirm the new required
       `JobFilters.qFields` field breaks no existing call site.
 - [x] 3.6 Run the full web test suite and confirm no regressions.
+- [x] 3.7 (Found in re-review) `browseTarget.ts`'s `browseQuery` set `q_fields` by
+      manually calling `params.set` after `filtersToParams`, with a comment claiming
+      `qFields` stays out of `JobFilters`/`filtersToParams` on purpose — stale as of
+      3.1-3.2, and a second, divergent mechanism for the one concern the module's own
+      header comment says must go through one serializer. Fixed: `browseQuery` now
+      sets `f.qFields` before calling `filtersToParams`, like every other field.
 
 `FilterStore`'s methods and the `JobsView.svelte` call site are not independently
 unit-tested (the class depends on Svelte 5 runes and SvelteKit modules this

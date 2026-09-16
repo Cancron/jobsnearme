@@ -25,15 +25,11 @@ import type { Suggestion } from './suggestions';
 export function browseQuery(plan: ApplyPlan): string {
   const f = emptyFilters();
   f.q = plan.q?.trim() ?? '';
+  f.qFields = plan.qFields?.length ? [...plan.qFields] : null;
   for (const [param, value] of plan.facets) {
     f.facets[param] = facetSetSign(f.facets[param] ?? emptyFacet(), value, 'include');
   }
-  const params = filtersToParams(f);
-  // q_fields is a query-scoped restriction tied to how `q` itself was built (quoted
-  // or not), not a persisted filter — it stays out of JobFilters/filtersToParams,
-  // which serialize the saved-search-shareable filter state.
-  if (plan.qFields?.length) params.set('q_fields', plan.qFields.join(','));
-  return params.toString();
+  return filtersToParams(f).toString();
 }
 
 /** The plan a locally-built starter row applies.
