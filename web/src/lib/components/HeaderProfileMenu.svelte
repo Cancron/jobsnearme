@@ -20,6 +20,9 @@
 
   const email = $derived(currentUser()?.email ?? '');
   const isModerator = $derived(currentUser()?.role === 'moderator');
+  // Drives the trigger's tier badge — see header-navigation's "Paying-tier badge on
+  // the desktop profile icon" requirement. 'free' shows nothing.
+  const tier = $derived(currentUser()?.tier ?? 'free');
 
   // Same row/icon-button treatment HeaderMenu's desktop dropdown uses, so the two
   // menus read as one visual language.
@@ -67,7 +70,7 @@
   {#if isAuthenticated()}
     <button
       type="button"
-      aria-label="Profile"
+      aria-label={tier === 'free' ? 'Profile' : `Profile (${tier})`}
       title={email}
       aria-haspopup="menu"
       aria-expanded={open}
@@ -78,9 +81,17 @@
         e.stopPropagation();
         open = !open;
       }}
-      class={cn('inline-flex', iconButton)}
+      class={cn('relative inline-flex', iconButton)}
     >
       <CircleUser class="size-5" />
+      {#if tier !== 'free'}
+        <span
+          aria-hidden="true"
+          class="absolute -bottom-1 -right-1 rounded-full bg-brand px-1 py-px text-[8px] font-bold uppercase leading-none text-brand-foreground ring-2 ring-background"
+        >
+          {tier}
+        </span>
+      {/if}
     </button>
 
     {#if open}

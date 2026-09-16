@@ -29,6 +29,18 @@ export default defineConfig({
   // succeeds, only readable minified stack traces in Sentry are skipped. When
   // enabled in ops, org/project/token come from the environment (freehire-ops),
   // never from code.
+  //
+  // That is the ABSENT-token case, and for months it was the only one written down
+  // while production was in the other one. A token Sentry REJECTS behaves the same
+  // from out here — warning printed, build exits 0 — so **this build's exit status is
+  // not evidence that anything was uploaded**, and no option set on the plugin below
+  // changes that. Measured 2026-09-16: 0 of the 100 most recent freehire-web releases
+  // had an uploaded file, every deploy green.
+  //
+  // What asks instead is scripts/sentry-credential-check.mjs, run from
+  // deploy/bin/release.sh before this build. Its header is the canonical explanation
+  // of why the build cannot answer this; read it there rather than trusting a second
+  // copy here to stay true.
   plugins: [
     sentrySvelteKit({
       sourceMapsUploadOptions: {

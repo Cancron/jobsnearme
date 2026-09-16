@@ -65,3 +65,31 @@ describe('HeaderProfileMenu', () => {
     expect(signedOutBranch).not.toContain('aria-haspopup="menu"');
   });
 });
+
+// Pins the header-navigation spec's "Paying-tier badge on the desktop profile icon"
+// requirement (welcome-pro-subscribers): the badge reads the tier that rides along on
+// GET /api/v1/auth/me, renders only for a paying tier, and lives on the trigger button
+// this component owns — it moved here from HeaderMenu.svelte along with the rest of the
+// profile control (split-header-profile-menu).
+describe('HeaderProfileMenu tier badge', () => {
+  it("derives the badge tier from the signed-in user, defaulting to 'free'", () => {
+    expect(SOURCE).toContain("currentUser()?.tier ?? 'free'");
+  });
+
+  it('shows no badge for a free account', () => {
+    expect(SOURCE).toContain("{#if tier !== 'free'}");
+  });
+
+  it('attaches the badge to the trigger button, not the dropdown panel', () => {
+    const triggerStart = SOURCE.indexOf("aria-label={tier === 'free' ? 'Profile'");
+    const badgeStart = SOURCE.indexOf("{#if tier !== 'free'}");
+    const menuPanelStart = SOURCE.indexOf('{#if open}');
+    expect(triggerStart).toBeGreaterThan(-1);
+    expect(badgeStart).toBeGreaterThan(triggerStart);
+    expect(badgeStart).toBeLessThan(menuPanelStart);
+  });
+
+  it("reflects the tier in the trigger's accessible name", () => {
+    expect(SOURCE).toContain("aria-label={tier === 'free' ? 'Profile' : `Profile (${tier})`}");
+  });
+});

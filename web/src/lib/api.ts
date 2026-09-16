@@ -13,6 +13,7 @@
 // `Responses` is the onboarding survey's record. Aliased on the way in because the
 // generated contracts are one flat namespace and the name says nothing on its own there —
 // see cmd/gen-contracts for why it is not called `Answers` like its Go siblings.
+import { track } from './analytics';
 import type {
   Answers,
   CatalogueMember,
@@ -48,6 +49,7 @@ import type {
   ListMeta,
   Mentor,
   MentorAvailabilityRule,
+  MentorCalendar,
   MentorProfileInput,
   MentorProfileSuggestions,
   MentorSession,
@@ -305,6 +307,47 @@ export class MovedError extends Error {
   }
 }
 
+/** The shape handler.write402 writes: the allowance that ran out, and the upgrade link —
+ *  present only when the caller's tier has something above it to buy. Typed loosely
+ *  because it arrives as parsed JSON and only these two fields are read. */
+type PlanRefusalBody = { allowance?: { feature?: unknown }; upgrade_url?: unknown };
+
+/** Record the moment a plan limit said no.
+ *
+ *  This is the only record of DEMAND for a paid feature. What a user spent is in
+ *  Postgres; what they were refused is nowhere else at all.
+ *
+ *  `toApiError` calls it for every ordinary JSON response, which covers a metered
+ *  feature reached that way without anyone remembering to instrument it. It is EXPORTED
+ *  because that is not all of them: the streaming features each own their transport and
+ *  read the refusal themselves, so they call this directly —
+ *
+ *    - the assistant (assistant/client.ts, its own fetch and TurnRefused)
+ *    - the cover letter (tailor/CoverLetter.svelte, a raw Response)
+ *    - dictation (assistant/speech.ts, its own status ladder)
+ *
+ *  and one of them cannot: MatchAnalysisFull.svelte opens an EventSource, where the
+ *  browser exposes no HTTP status at all and a 402 surfaces only as `onerror`. Counting
+ *  that one needs a different transport, not a different call site.
+ *
+ *  The feature name and whether an upgrade was on offer come from the SERVER's own
+ *  refusal body (handler.write402), so neither is guessed from the request path.
+ *
+ *  No browser guard of its own: toApiError also runs during SSR, and `track` already
+ *  handles that — it queues into a bounded buffer that a server process simply never
+ *  drains. A second guard here would only make this call behave unlike every other
+ *  `track` in the app, and would be untestable in the node environment the unit tests
+ *  run in. */
+export function trackPlanRefusal(status: number, body: unknown): void {
+  if (status !== 402) return;
+  const refusal = body as PlanRefusalBody | null;
+  const feature = refusal?.allowance?.feature;
+  track('plan_refused', {
+    feature: typeof feature === 'string' ? feature : 'unknown',
+    upgrade_offered: typeof refusal?.upgrade_url === 'string',
+  });
+}
+
 /** Parse a failed response into an ApiError. The backend's standard error envelope is
  *  `{ "error": msg }`; surface that as the message (falling back to the status line for a
  *  non-JSON error, e.g. a proxy 502) and keep the whole parsed body for callers that need
@@ -313,6 +356,7 @@ async function toApiError(res: Response): Promise<ApiError> {
   try {
     const body = await res.json();
     const msg = body && typeof body.error === 'string' ? body.error : `${res.status} ${res.statusText}`;
+    trackPlanRefusal(res.status, body);
     return new ApiError(res.status, msg, body ?? undefined);
   } catch {
     return new ApiError(res.status, `${res.status} ${res.statusText}`);
@@ -897,6 +941,17 @@ export function createApi(
     return requestData<MentorAvailabilityRule[]>('/api/v1/me/mentorship/availability');
   }
 
+  /** The caller's own resolved calendar for one month — booked, busy, free and closed
+   *  time — read-only. `month` is `YYYY-MM`; omitted, the server defaults to the current
+   *  month. */
+  async function myMentorCalendar(month?: string): Promise<MentorCalendar> {
+    const params = month ? `?month=${encodeURIComponent(month)}` : '';
+    const res = await request<{ data: MentorCalendar['intervals']; meta: { timezone: string } }>(
+      `/api/v1/me/mentorship/availability/calendar${params}`,
+    );
+    return { intervals: res.data, timezone: res.meta.timezone };
+  }
+
   /** Swap the WHOLE recurring week in one call.
    *
    *  Whole-week and not per-row on purpose: a schedule is a shape a mentor reasons about
@@ -1381,6 +1436,11 @@ export function createApi(
    *  up — both answer 404. Callers treat that as "no upgrade offer here" and hide the
    *  entry point, never as an error to show. */
   async function billingCheckout(priceID?: string): Promise<CheckoutSession> {
+    // Intent, recorded before the answer: this is the step between reaching the plan page
+    // and paying, and it is the only one that says a visitor meant to buy. A failure to
+    // create the session is then visible as intent without a purchase rather than as
+    // nothing at all.
+    track('checkout_start', { price_id: priceID ?? 'default' });
     const q = priceID ? `?price=${encodeURIComponent(priceID)}` : '';
     // No code here. This is a GET, and `SameSite=Lax` sends the session cookie on a
     // cross-site top-level navigation — so a GET that redeemed a code would let any page
@@ -2161,9 +2221,16 @@ export function createApi(
     });
   }
 
-  /** Reject a pending submission with an optional reason. */
-  async function rejectSubmission(id: number, reason?: string): Promise<Submission> {
-    return requestData<Submission>(`/api/v1/submissions/${id}/reject`, jsonBody('POST', { reason: reason ?? '' }));
+  /** Reject a pending submission with an optional reason. When blockDomain is set, the
+   *  submission's URL host is also added to the submission-domain blocklist and every
+   *  other pending submission on that host is rejected in the same action — the response
+   *  is still only the target submission, so a caller passing blockDomain should re-fetch
+   *  the queue to see any bulk-rejected siblings. */
+  async function rejectSubmission(id: number, reason?: string, blockDomain?: boolean): Promise<Submission> {
+    return requestData<Submission>(
+      `/api/v1/submissions/${id}/reject`,
+      jsonBody('POST', { reason: reason ?? '', block_domain: blockDomain ?? false }),
+    );
   }
 
   /** Report a problem with a live vacancy (by slug). Returns the pending report. */
@@ -2823,6 +2890,7 @@ export function createApi(
     withdrawMentorProfile,
     reactivateMentorProfile,
     myMentorAvailability,
+    myMentorCalendar,
     replaceWeeklyAvailability,
     addAvailabilityOverride,
     deleteAvailabilityRule,

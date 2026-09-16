@@ -2,24 +2,18 @@
   import { Radar } from '@lucide/svelte';
   import { resolve } from '$app/paths';
   import { api } from '$lib/api';
-  import { currentUser } from '$lib/auth.svelte';
   import type { TalentNetworkVisibility } from '$lib/types';
+  import { isTalentNetworkMember } from '$lib/talentMembership';
   import { Button, Card } from '$lib/ui';
 
   // The invitation into the Talent Network, on the profile page.
   //
   // It is here because this is where a candidate finishes describing themselves, which is
-  // the moment "be found without applying" is worth offering. The nav entry is the other
-  // way in; the feature previously shipped with neither, which is indistinguishable from
-  // not having shipped.
+  // the moment "be found without applying" is worth offering. It is the ONLY way in — the
+  // account navigation no longer carries a Talent Network entry of its own.
   //
   // Read-only: it states where the candidate stands and links to the control. Joining is
   // a decision, and a decision belongs on the page that explains what it publishes.
-
-  // Hidden entirely outside the beta group, not shown-and-disabled: an invitation into
-  // something you cannot join is worse than no invitation. The real gate is the server's
-  // refusal of the join; this only keeps the offer honest.
-  const beta = $derived(currentUser()?.beta_tester ?? false);
 
   let status = $state<'loading' | 'error' | 'ready'>('loading');
   let visibility = $state<TalentNetworkVisibility>('off');
@@ -27,10 +21,9 @@
   // See the settings page: membership does not mean a visitor can see them.
   let listed = $state(false);
 
-  const isMember = $derived(visibility !== 'off');
+  const isMember = $derived(isTalentNetworkMember(visibility));
 
   $effect(() => {
-    if (!beta) return;
     let cancelled = false;
     void (async () => {
       try {
@@ -54,7 +47,7 @@
   });
 </script>
 
-{#if beta && status === 'ready'}
+{#if status === 'ready'}
   <Card class="flex flex-wrap items-center justify-between gap-4 p-5">
     <div class="flex min-w-0 items-start gap-3">
       <Radar class="mt-0.5 size-5 shrink-0 text-muted-foreground" aria-hidden="true" />

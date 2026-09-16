@@ -84,8 +84,9 @@ var blocks = map[string][]string{
 		"worker",
 	},
 	"dict": {
-		"answertopic", "classify", "companyname", "industrytag", "lang", "location", "normalize",
-		"roletype", "skilladjacency", "skillbundle", "skilltag", "slugmint",
+		"answertopic", "certification", "classify", "companyname", "edulevel", "industrytag",
+		"lang", "location", "normalize", "roletype", "skilladjacency", "skillbundle", "skilltag",
+		"slugmint",
 		// skillvec/gen is the registry generator — a main package that reads skilltag
 		// and writes skillvec's source. It never ships in a binary, but it is a package
 		// in the repo, so it needs a block like any other.
@@ -150,7 +151,13 @@ var blocks = map[string][]string{
 		"talentnetwork",
 	},
 	"job": {
-		"applydate", "collections", "ghost", "ghostreport", "job", "jobdedup",
+		"applydate", "collections",
+		// dictgap turns LLM enrichment facts already in the catalogue into ranked
+		// candidate gaps for the deterministic dict/skilltag and dict/classify
+		// dictionaries — a fact about postings' recorded facets, not an AI/enrichment
+		// concern, the same footing reqextract and wikicompany take below.
+		"dictgap",
+		"ghost", "ghostreport", "job", "jobdedup",
 		"jobderive", "jobfacts", "jobhash", "jobreality", "jobview", "liveness",
 		"outboundurl", "privatejob",
 		// recentfeed polls recent_feed_outbox and groups the batch by
@@ -164,6 +171,13 @@ var blocks = map[string][]string{
 		// and returns them in the enrichment contract's shape, so it takes enrich the
 		// way jobview does — the block below it, not the model.
 		"reqextract",
+		// searchping announces a posting's public URL to the external search engines
+		// that accept being told (Google's Indexing API, IndexNow). It is here and not
+		// in search because search is OUR index — Meilisearch, the drain, saved
+		// searches — while this is a fact about a posting's public address and reaches
+		// no further than platform. Which postings are eligible lives in the SQL beside
+		// the query, so nothing above needs to be imported to decide it.
+		"searchping",
 		"silence", "verdict", "ycdir",
 		// wikicompany resolves a company name against Wikidata/Wikipedia's public APIs
 		// for the company-info-wikipedia-backfill worker — a fact-lookup about a
@@ -213,6 +227,12 @@ var blocks = map[string][]string{
 		// in job, because what it stores is what a PERSON reported, not a property the
 		// catalogue derived — the same reason report and vote are here.
 		"processreport", "pushnotify",
+		// prowelcome is here rather than beside billing for the same reason discordlink
+		// is: it is outbound engagement (a one-time email), not subscription logic. It
+		// reads a tier resolved elsewhere (plan.TierOf, same as discordlink) and never
+		// imports identity/billing at all — the reconciling worker that calls it reads
+		// the entitlement columns directly.
+		"prowelcome",
 		"referral", "reminder", "report", "socialdigest", "subscription",
 		"telegramnotify", "vote", "webhooknotify",
 	},
