@@ -203,4 +203,12 @@ type CatalogueMember struct {
 	// UpdatedAt is when the structured extract was written, which is the freshest thing
 	// the catalogue knows about a member. It orders the list.
 	UpdatedAt time.Time `json:"updated_at"`
+
+	// HasPhoto says only whether GET /talent/{handle}/photo has something to serve —
+	// never the object key, and never the image itself. It survives the card's own
+	// dictionary-only rule because a boolean carries no name: the alternative was every
+	// list card firing that request and reading the 404 GetPhoto already gives a member
+	// with none, which is correct but a wasted round trip for what is, in practice, most
+	// of the catalogue.
+	HasPhoto bool `json:"has_photo"`
 }
