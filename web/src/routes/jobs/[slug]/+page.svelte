@@ -5,6 +5,8 @@
   import JobSeeAlso from '$lib/components/JobSeeAlso.svelte';
   import JobView from '$lib/components/JobView.svelte';
   import Seo from '$lib/components/Seo.svelte';
+  import { filterHref } from '$lib/enrichment';
+  import { categoryLabel } from '$lib/labels';
   import { categoryLandingLink } from '$lib/roleLandings';
   import {
     breadcrumbJsonLd,
@@ -37,7 +39,26 @@
   // is a step Google resolves away. That is now backwards — `/jobs` is the real feed and
   // `/` is the one that redirects (jobs/+page.server.ts's own comment: "The feed used to
   // live at `/`, which is now the landing page") — so the level belongs back.
-  const breadcrumbItems = $derived([{ name: 'Jobs', href: '/jobs' }, { name: data.job.title }]);
+  //
+  // The category level in between is the same facet `/jobs` itself filters on
+  // (search.query_filter's StringFacets["category"]), via filterHref — the same helper
+  // every other facet link in the app builds its /jobs?<facet>= URL through, rather than
+  // a hand-rolled, unencoded string. `categoryLabel` matches what marketLink.label would
+  // say when marketLink exists (categoryLandingLink sets it from the same function) and
+  // also covers a category the market-landing table doesn't publish (marketLink null,
+  // e.g. `other`); a job with no category at all skips the level.
+  const breadcrumbItems = $derived([
+    { name: 'Jobs', href: '/jobs' },
+    ...(data.job.enrichment.category
+      ? [
+          {
+            name: categoryLabel(data.job.enrichment.category),
+            href: filterHref('category', data.job.enrichment.category),
+          },
+        ]
+      : []),
+    { name: data.job.title },
+  ]);
   const jsonLd = $derived(
     jsonLdScript([
       jobPostingJsonLd(data.job, origin),
