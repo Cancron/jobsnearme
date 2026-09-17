@@ -793,7 +793,7 @@ data: {"kind":"final","analysis":{"overall_score":82,"verdict":"Strong Fit","...
         path: '/company-feedback/reported',
         auth: 'moderator',
         summary: 'Every review with at least one report, most-reported first.',
-        curl: `curl "${BASE_URL}/company-feedback/reported" -H "Authorization: Bearer $MODERATOR_API_KEY"`,
+        curl: `curl "${BASE_URL}/company-feedback/reported" -b cookies.txt`,
         responseExample: `{
   "data": [
     {
@@ -818,7 +818,7 @@ data: {"kind":"final","analysis":{"overall_score":82,"verdict":"Strong Fit","...
         summary: "Hide a review, dropping it from the company's public list and average.",
         description: 'Idempotent. 404 for an unknown id.',
         pathParams: [{ name: 'id', type: 'integer', required: true, description: 'The feedback entry id.', example: '5' }],
-        curl: `curl -X POST "${BASE_URL}/company-feedback/5/hide" -H "Authorization: Bearer $MODERATOR_API_KEY"`,
+        curl: `curl -X POST "${BASE_URL}/company-feedback/5/hide" -b cookies.txt`,
         responseExample: `(204 No Content)`,
       },
     ],
@@ -1691,7 +1691,7 @@ data: {"type":"result","stop_reason":"completed"}
         path: '/submissions',
         auth: 'moderator',
         summary: 'The pending submission queue (moderators).',
-        curl: `curl "${BASE_URL}/submissions" -H "Authorization: Bearer $MODERATOR_API_KEY"`,
+        curl: `curl "${BASE_URL}/submissions" -b cookies.txt`,
         responseExample: `{ "data": [ { "id": 9, "status": "pending", "submitter_email": "me@example.com" } ] }`,
       },
       {
@@ -1700,7 +1700,7 @@ data: {"type":"result","stop_reason":"completed"}
         auth: 'moderator',
         summary: 'Approve a submission, minting a live job.',
         pathParams: [{ name: 'id', type: 'integer', required: true, description: 'The submission id.', example: '9' }],
-        curl: `curl -X POST "${BASE_URL}/submissions/9/approve" -H "Authorization: Bearer $MODERATOR_API_KEY"`,
+        curl: `curl -X POST "${BASE_URL}/submissions/9/approve" -b cookies.txt`,
         responseExample: `{ "data": { "id": 9, "status": "approved", "job_slug": "senior-go-engineer-acme-1a2b" } }`,
       },
       {
@@ -1711,8 +1711,7 @@ data: {"type":"result","stop_reason":"completed"}
         pathParams: [{ name: 'id', type: 'integer', required: true, description: 'The submission id.', example: '9' }],
         body: [{ name: 'reason', type: 'string', description: 'Why it was rejected.', example: 'duplicate' }],
         curl: `curl -X POST "${BASE_URL}/submissions/9/reject" \\
-  -H "Authorization: Bearer $MODERATOR_API_KEY" \\
-  -H 'Content-Type: application/json' \\
+  -b cookies.txt -H 'Content-Type: application/json' \\
   -d '{"reason":"duplicate"}'`,
         responseExample: `{ "data": { "id": 9, "status": "rejected", "review_reason": "duplicate" } }`,
       },
@@ -1746,7 +1745,7 @@ data: {"type":"result","stop_reason":"completed"}
         path: '/reports',
         auth: 'moderator',
         summary: 'The pending report queue (moderators).',
-        curl: `curl "${BASE_URL}/reports" -H "Authorization: Bearer $MODERATOR_API_KEY"`,
+        curl: `curl "${BASE_URL}/reports" -b cookies.txt`,
         responseExample: `{ "data": [ { "id": 3, "status": "pending", "job_slug": "...", "job_title": "..." } ] }`,
       },
       {
@@ -1771,8 +1770,7 @@ data: {"type":"result","stop_reason":"completed"}
           },
         ],
         curl: `curl -X POST "${BASE_URL}/reports/3/resolve" \\
-  -H "Authorization: Bearer $MODERATOR_API_KEY" \\
-  -H 'Content-Type: application/json' \\
+  -b cookies.txt -H 'Content-Type: application/json' \\
   -d '{"close_job":true,"note":"Fixed — the job is now marked hybrid","notify_reporter":true}'`,
         responseExample: `{ "data": { "id": 3, "status": "resolved", "notified": true } }`,
       },
@@ -1797,8 +1795,7 @@ data: {"type":"result","stop_reason":"completed"}
           },
         ],
         curl: `curl -X POST "${BASE_URL}/reports/3/dismiss" \\
-  -H "Authorization: Bearer $MODERATOR_API_KEY" \\
-  -H 'Content-Type: application/json' \\
+  -b cookies.txt -H 'Content-Type: application/json' \\
   -d '{"reason":"not an issue"}'`,
         responseExample: `{ "data": { "id": 3, "status": "dismissed", "review_reason": "not an issue" } }`,
       },
@@ -1864,8 +1861,7 @@ data: {"type":"result","stop_reason":"completed"}
           { name: 'posted_at', type: 'string (RFC3339)', description: 'Posting date.' },
         ],
         curl: `curl -X POST "${BASE_URL}/jobs" \\
-  -H "Authorization: Bearer $MODERATOR_API_KEY" \\
-  -H 'Content-Type: application/json' \\
+  -b cookies.txt -H 'Content-Type: application/json' \\
   -d '{"url":"https://acme.com/careers/123","title":"Senior Go Engineer","company":"Acme"}'`,
         responseExample: `{ "data": { "public_slug": "senior-go-engineer-acme-1a2b", "title": "Senior Go Engineer", "manually_added": true } }`,
       },
@@ -1877,8 +1873,7 @@ data: {"type":"result","stop_reason":"completed"}
         pathParams: [{ name: 'slug', type: 'string', required: true, description: 'The job `public_slug`.' }],
         body: [{ name: '(any job field)', type: 'varies', description: 'Same fields as create; provided fields are updated.' }],
         curl: `curl -X PATCH "${BASE_URL}/jobs/<slug>" \\
-  -H "Authorization: Bearer $MODERATOR_API_KEY" \\
-  -H 'Content-Type: application/json' \\
+  -b cookies.txt -H 'Content-Type: application/json' \\
   -d '{"title":"Staff Go Engineer"}'`,
         responseExample: `{ "data": { "public_slug": "...", "title": "Staff Go Engineer" } }`,
       },

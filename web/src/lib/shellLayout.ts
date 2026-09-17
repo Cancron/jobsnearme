@@ -26,8 +26,15 @@ export function isFullBleedRoute(pathname: string): boolean {
 // normal scrolling document (Scalar's own sidebar is `position: sticky`, not a
 // height-constrained pane) and still wants the site footer at the bottom of it.
 
+/** True for either Scalar-rendered API reference page — the one route pair that
+ *  both isWideHeaderRoute and TopBar's search-box suppression need to recognize
+ *  as a group, kept here as the single place that lists them. */
+export function isApiReferenceRoute(pathname: string): boolean {
+  return pathname === '/docs/api' || pathname === '/docs/api/internal';
+}
+
 /** True wherever the header should go edge to edge — every isFullBleedRoute plus the
  *  external and internal API references. */
 export function isWideHeaderRoute(pathname: string): boolean {
-  return isFullBleedRoute(pathname) || pathname === '/docs/api' || pathname === '/docs/api/internal';
+  return isFullBleedRoute(pathname) || isApiReferenceRoute(pathname);
 }

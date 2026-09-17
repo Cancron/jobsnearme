@@ -1,19 +1,8 @@
-// Server-rendered fragment for the internal Scalar API reference — the session-cookie
-// counterpart of ../+page.server.ts. Same reasoning throughout (dynamic import to dodge
-// SvelteKit's build-time route analysis touching @scalar/server-side-rendering's
-// worker_threads dependency chain; memoized per-process render), against the internal
-// spec instead of the external one, so a request for either page never renders the
-// other's content.
+// The internal (session-cookie-only) API reference — see ../+page.server.ts for the
+// external counterpart. Both share createScalarPageLoad; see its own comment for the
+// SSR/memoization details.
 import spec from '$lib/docs/generated/api-reference.internal.openapi.json' with { type: 'json' };
-import { scalarConfigFromContent } from '$lib/docs/scalarConfig';
+import { createScalarPageLoad } from '$lib/docs/scalarSsr';
 import type { PageServerLoad } from './$types';
 
-let cachedScalarHtml: Promise<string> | undefined;
-
-export const load: PageServerLoad = async () => {
-  cachedScalarHtml ??= (async () => {
-    const { renderApiReferenceToString } = await import('@scalar/server-side-rendering');
-    return renderApiReferenceToString(scalarConfigFromContent(spec));
-  })();
-  return { scalarHtml: await cachedScalarHtml };
-};
+export const load: PageServerLoad = createScalarPageLoad(spec);

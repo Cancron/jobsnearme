@@ -98,6 +98,18 @@ async function main() {
     }
   })());
 
+  // An `Auth` level AUDIENCE_AUTH doesn't route to either side must fail loudly,
+  // not silently drop whatever endpoint carries it from both documents.
+  assert('an auth level AUDIENCE_AUTH does not cover throws', (() => {
+    const bogusSpec = { ...spec, AUTH_LABELS: { ...spec.AUTH_LABELS, mystery: 'Mystery' } };
+    try {
+      partitionForAudience(bogusSpec, 'external');
+      return false;
+    } catch {
+      return true;
+    }
+  })());
+
   let failed = 0;
   for (const c of checks) {
     if (!c.ok) failed++;

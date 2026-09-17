@@ -151,6 +151,22 @@ const AUDIENCE_INTRO = {
   },
 };
 
+// AUDIENCE_AUTH is a plain runtime Set, with no compiler tie to api-spec.ts's
+// `Auth` union — unlike AUTH_LABELS there, a `Record<Auth, string>` TypeScript
+// already forces to be exhaustive. Checked against AUTH_LABELS' own keys (the
+// spec's one exhaustive enumeration of `Auth`) so a future auth level that
+// AUDIENCE_AUTH doesn't route anywhere fails loudly here, instead of silently
+// vanishing from both documents via `allow.has(ep.auth)` being false in both.
+function assertAudienceAuthIsExhaustive(authLabels) {
+  const covered = new Set([...AUDIENCE_AUTH.external, ...AUDIENCE_AUTH.internal]);
+  const uncovered = Object.keys(authLabels).filter((auth) => !covered.has(auth));
+  if (uncovered.length > 0) {
+    throw new Error(
+      `AUDIENCE_AUTH does not route auth level(s) ${uncovered.join(', ')} to either audience — add them to AUDIENCE_AUTH in gen-api-docs.mjs`,
+    );
+  }
+}
+
 // Pure: (spec, audience) -> a new spec restricted to that audience's endpoints, with
 // the matching intro section spliced into OVERVIEW. A group left with no endpoints for
 // this audience (e.g. "Moderator jobs" for 'external') is dropped rather than rendered
@@ -158,6 +174,7 @@ const AUDIENCE_INTRO = {
 export function partitionForAudience(spec, audience) {
   const allow = AUDIENCE_AUTH[audience];
   if (!allow) throw new Error(`Unknown audience "${audience}" — add it to AUDIENCE_AUTH in gen-api-docs.mjs`);
+  assertAudienceAuthIsExhaustive(spec.AUTH_LABELS);
 
   const GROUPS = spec.GROUPS.map((g) => ({
     ...g,
@@ -165,6 +182,7 @@ export function partitionForAudience(spec, audience) {
   })).filter((g) => g.endpoints.length > 0);
 
   const authIndex = spec.OVERVIEW.findIndex((o) => o.title === 'Authentication model');
+  if (authIndex === -1) throw new Error('OVERVIEW has no "Authentication model" section to splice the audience intro after');
   const OVERVIEW = [...spec.OVERVIEW];
   OVERVIEW.splice(authIndex + 1, 0, AUDIENCE_INTRO[audience]);
 

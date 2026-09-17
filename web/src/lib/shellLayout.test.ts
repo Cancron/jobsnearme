@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { isFullBleedRoute, isWideHeaderRoute } from './shellLayout';
+import { isApiReferenceRoute, isFullBleedRoute, isWideHeaderRoute } from './shellLayout';
 
 describe('isFullBleedRoute', () => {
   it('covers the agent, with and without a session id', () => {
@@ -26,6 +26,21 @@ describe('isFullBleedRoute', () => {
 
   it('does not match on a prefix that only looks like the agent', () => {
     expect(isFullBleedRoute('/my/assistants')).toBe(false);
+  });
+});
+
+describe('isApiReferenceRoute', () => {
+  it('covers both the external and internal API references', () => {
+    expect(isApiReferenceRoute('/docs/api')).toBe(true);
+    expect(isApiReferenceRoute('/docs/api/internal')).toBe(true);
+  });
+
+  it('does not catch a sub-path of the API reference', () => {
+    expect(isApiReferenceRoute('/docs/api/jobs')).toBe(false);
+  });
+
+  it('leaves unrelated routes alone', () => {
+    expect(isApiReferenceRoute('/my')).toBe(false);
   });
 });
 

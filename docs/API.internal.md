@@ -287,7 +287,7 @@ curl -X POST "https://freehire.me/api/v1/company-feedback/5/report" \
 Every review with at least one report, most-reported first.
 
 ```bash
-curl "https://freehire.me/api/v1/company-feedback/reported" -H "Authorization: Bearer $MODERATOR_API_KEY"
+curl "https://freehire.me/api/v1/company-feedback/reported" -b cookies.txt
 ```
 
 ```json
@@ -324,7 +324,7 @@ Idempotent. 404 for an unknown id.
 | `id` | integer | yes | The feedback entry id. (e.g. `5`) |
 
 ```bash
-curl -X POST "https://freehire.me/api/v1/company-feedback/5/hide" -H "Authorization: Bearer $MODERATOR_API_KEY"
+curl -X POST "https://freehire.me/api/v1/company-feedback/5/hide" -b cookies.txt
 ```
 
 ```json
@@ -474,7 +474,7 @@ Any signed-in user can submit a vacancy for moderation and read their own queue.
 The pending submission queue (moderators).
 
 ```bash
-curl "https://freehire.me/api/v1/submissions" -H "Authorization: Bearer $MODERATOR_API_KEY"
+curl "https://freehire.me/api/v1/submissions" -b cookies.txt
 ```
 
 ```json
@@ -494,7 +494,7 @@ Approve a submission, minting a live job.
 | `id` | integer | yes | The submission id. (e.g. `9`) |
 
 ```bash
-curl -X POST "https://freehire.me/api/v1/submissions/9/approve" -H "Authorization: Bearer $MODERATOR_API_KEY"
+curl -X POST "https://freehire.me/api/v1/submissions/9/approve" -b cookies.txt
 ```
 
 ```json
@@ -521,8 +521,7 @@ Reject a submission with a reason.
 
 ```bash
 curl -X POST "https://freehire.me/api/v1/submissions/9/reject" \
-  -H "Authorization: Bearer $MODERATOR_API_KEY" \
-  -H 'Content-Type: application/json' \
+  -b cookies.txt -H 'Content-Type: application/json' \
   -d '{"reason":"duplicate"}'
 ```
 
@@ -541,7 +540,7 @@ Any signed-in user can flag a problem with a live vacancy. Review actions are mo
 The pending report queue (moderators).
 
 ```bash
-curl "https://freehire.me/api/v1/reports" -H "Authorization: Bearer $MODERATOR_API_KEY"
+curl "https://freehire.me/api/v1/reports" -b cookies.txt
 ```
 
 ```json
@@ -570,8 +569,7 @@ Resolve a report, optionally closing the job and telling the reporter.
 
 ```bash
 curl -X POST "https://freehire.me/api/v1/reports/3/resolve" \
-  -H "Authorization: Bearer $MODERATOR_API_KEY" \
-  -H 'Content-Type: application/json' \
+  -b cookies.txt -H 'Content-Type: application/json' \
   -d '{"close_job":true,"note":"Fixed — the job is now marked hybrid","notify_reporter":true}'
 ```
 
@@ -600,8 +598,7 @@ Dismiss a report with a reason, optionally telling the reporter.
 
 ```bash
 curl -X POST "https://freehire.me/api/v1/reports/3/dismiss" \
-  -H "Authorization: Bearer $MODERATOR_API_KEY" \
-  -H 'Content-Type: application/json' \
+  -b cookies.txt -H 'Content-Type: application/json' \
   -d '{"reason":"not an issue"}'
 ```
 
@@ -634,8 +631,7 @@ Create a curated job.
 
 ```bash
 curl -X POST "https://freehire.me/api/v1/jobs" \
-  -H "Authorization: Bearer $MODERATOR_API_KEY" \
-  -H 'Content-Type: application/json' \
+  -b cookies.txt -H 'Content-Type: application/json' \
   -d '{"url":"https://acme.com/careers/123","title":"Senior Go Engineer","company":"Acme"}'
 ```
 
@@ -663,8 +659,7 @@ Edit a curated job.
 
 ```bash
 curl -X PATCH "https://freehire.me/api/v1/jobs/<slug>" \
-  -H "Authorization: Bearer $MODERATOR_API_KEY" \
-  -H 'Content-Type: application/json' \
+  -b cookies.txt -H 'Content-Type: application/json' \
   -d '{"title":"Staff Go Engineer"}'
 ```
 

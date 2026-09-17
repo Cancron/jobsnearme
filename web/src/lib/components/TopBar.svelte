@@ -7,7 +7,7 @@
   import { ROLE_PLACEHOLDER } from '$lib/placeholderRoles';
   import HeaderMenu from './HeaderMenu.svelte';
   import BrandMark from './BrandMark.svelte';
-  import { isWideHeaderRoute } from '$lib/shellLayout';
+  import { isApiReferenceRoute, isWideHeaderRoute } from '$lib/shellLayout';
   import { HEADER_LINKS } from '$lib/siteNav';
 
   // The header is three slots — logo | search | menu — identical on every
@@ -45,9 +45,7 @@
   // (see its own `onWindowKeydown`), so leaving it mounted here would not just be a
   // search box with nothing to search — it would fight Scalar's for the very keys that
   // are supposed to open it.
-  const docsApiHeader = $derived(
-    page.url.pathname === '/docs/api' || page.url.pathname === '/docs/api/internal',
-  );
+  const docsApiHeader = $derived(isApiReferenceRoute(page.url.pathname));
 
   /** How many of HEADER_LINKS the bare header carries below `lg`, taken from the FRONT of
    *  that list — so its order is the contract, and reordering it changes what a narrow
