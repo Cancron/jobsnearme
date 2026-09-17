@@ -41,22 +41,16 @@
      because the whole row is what a pointer aims at. -->
 <Card class="flex gap-4 p-4 transition hover:border-brand hover:bg-accent">
   <!-- display:contents so this wrapper (needed only to keep the snippet below from being
-  read as a prop passed to Card) does not itself become a flex item. -->
+  read as a prop passed to Card) does not itself become a flex item. Avatar falls back to
+  fallbackIcon on its own whenever src is absent, so has_photo needs no branch here — only
+  which src it gets. -->
   <div class="contents">
-    {#if member.has_photo}
-      <Avatar
-        src="/api/v1/talent/{member.handle}/photo"
-        size="md"
-        class="mt-0.5 size-11 shrink-0 bg-secondary"
-        fallbackIcon={personIcon}
-      />
-    {:else}
-      <div
-        class="mt-0.5 flex size-11 shrink-0 items-center justify-center rounded-full bg-secondary text-muted-foreground"
-      >
-        <User class="size-5" aria-hidden="true" />
-      </div>
-    {/if}
+    <Avatar
+      src={member.has_photo ? `/api/v1/talent/${member.handle}/photo` : undefined}
+      size="md"
+      class="mt-0.5 size-11 shrink-0 bg-secondary"
+      fallbackIcon={personIcon}
+    />
     {#snippet personIcon()}
       <User class="size-5" aria-hidden="true" />
     {/snippet}
