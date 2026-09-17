@@ -1,6 +1,7 @@
 import { render } from '@testing-library/svelte';
 import { describe, expect, it } from 'vitest';
 import Breadcrumbs from './breadcrumbs.svelte';
+import { must } from './test-utils';
 
 describe('Breadcrumbs', () => {
   it('renders every hub item as a link and the current item as unlinked text', () => {
@@ -43,7 +44,7 @@ describe('Breadcrumbs', () => {
 
     const matches = getAllByText('QA');
     expect(matches).toHaveLength(2);
-    expect(matches[0].tagName).toBe('A');
-    expect(matches[1].tagName).toBe('SPAN');
+    expect(must(matches[0]).tagName).toBe('A');
+    expect(must(matches[1]).tagName).toBe('SPAN');
   });
 });
