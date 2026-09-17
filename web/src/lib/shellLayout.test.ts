@@ -39,6 +39,10 @@ describe('isWideHeaderRoute', () => {
     expect(isWideHeaderRoute('/docs/api')).toBe(true);
   });
 
+  it('covers the internal API reference too', () => {
+    expect(isWideHeaderRoute('/docs/api/internal')).toBe(true);
+  });
+
   it('does not catch a sub-path of the API reference', () => {
     expect(isWideHeaderRoute('/docs/api/jobs')).toBe(false);
   });

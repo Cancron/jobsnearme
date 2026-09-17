@@ -25,7 +25,8 @@ import type { PageServerLoad } from './$types';
 // regenerates it, which restarts this process anyway. Memoized as a Promise
 // (not just its resolved value) so concurrent first requests share one
 // in-flight render instead of each re-running Scalar's Vue SSR renderer over
-// the same ~370KB/254-endpoint document.
+// the same document — the external (non-session) endpoints only; see
+// internal/+page.server.ts for the session-cookie-only counterpart.
 let cachedScalarHtml: Promise<string> | undefined;
 
 export const load: PageServerLoad = async () => {

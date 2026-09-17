@@ -45,7 +45,9 @@
   // (see its own `onWindowKeydown`), so leaving it mounted here would not just be a
   // search box with nothing to search — it would fight Scalar's for the very keys that
   // are supposed to open it.
-  const docsApiHeader = $derived(page.url.pathname === '/docs/api');
+  const docsApiHeader = $derived(
+    page.url.pathname === '/docs/api' || page.url.pathname === '/docs/api/internal',
+  );
 
   /** How many of HEADER_LINKS the bare header carries below `lg`, taken from the FRONT of
    *  that list — so its order is the contract, and reordering it changes what a narrow
