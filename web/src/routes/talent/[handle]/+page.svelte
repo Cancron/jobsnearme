@@ -4,7 +4,7 @@
   import { countryLabel, skillLabel } from '$lib/facets';
   import { CATEGORY_LABELS, CERTIFICATION_LABELS, EDUCATION_LEVEL_LABELS, titleCase } from '$lib/labels';
   import { talentHeading, talentPlace } from '$lib/talentCard';
-  import { Card, Chip, CountryFlag } from '$lib/ui';
+  import { Avatar, Card, Chip, CountryFlag } from '$lib/ui';
   import type { PageData } from './$types';
 
   // One member's public card. The same anonymised payload the catalogue list carries,
@@ -62,11 +62,21 @@
     class="flex min-w-0 flex-col gap-6 {card.skills.length ? 'lg:col-start-2' : 'lg:col-span-2'}"
   >
     <div class="flex items-start gap-4">
-      <div
-        class="flex size-14 shrink-0 items-center justify-center rounded-full bg-secondary text-muted-foreground"
-      >
+      <!-- A member's uploaded photo, when present, is shown here — but never the original:
+      this route serves a strongly, irreversibly blurred rendering computed server-side on
+      every request (internal/candidate/headshot.Blur). Anonymity is still the point, so no
+      "name" is passed to Avatar — a member without a photo falls through to the same plain
+      silhouette this page has always shown, never a colour/initials avatar, which would
+      invent an identity marker this card is not supposed to carry. -->
+      <Avatar
+        src="/api/v1/talent/{member.handle}/photo"
+        size="lg"
+        class="size-14 shrink-0 bg-secondary"
+        fallbackIcon={personIcon}
+      />
+      {#snippet personIcon()}
         <User class="size-6" aria-hidden="true" />
-      </div>
+      {/snippet}
       <div class="flex min-w-0 flex-col gap-1">
         <h1 class="text-2xl font-semibold tracking-tight">{heading}</h1>
         <div class="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
@@ -165,12 +175,13 @@
 
     <p class="text-xs text-muted-foreground">
       Names, employers and contact details are never shown here — the profile is published
-      anonymously by the candidate's own choice.
+      anonymously by the candidate's own choice. A photo, if uploaded, is shown heavily
+      blurred and cannot be recovered in its original form.
     </p>
   </div>
 
   {#if card.skills.length}
-    <aside class="w-full shrink-0 lg:col-start-1 lg:row-start-1">
+    <aside class="order-last w-full shrink-0 lg:order-none lg:col-start-1 lg:row-start-1">
       <div class="sticky top-20 flex flex-col gap-3 rounded-xl border border-border bg-card p-4">
         <p class="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Skills</p>
         <div class="flex flex-wrap gap-1.5">
