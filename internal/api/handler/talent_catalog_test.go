@@ -406,16 +406,15 @@ func TestTalentCatalogGetPhoto_ServesABlurredImageForAMemberWithAHeadshot(t *tes
 // unconfigured — must all answer exactly like a handle nobody holds. A caller must not
 // learn which of these is true from the shape of the response.
 func TestTalentCatalogGetPhoto_EveryAbsenceReasonAnswersTheSame(t *testing.T) {
-	memberNoPhoto := twoMemberStore()
-	memberNoPhoto.ownerHandle = "backend-aaaa"
-	memberNoPhoto.ownerID = 42
+	// The same store for both "no headshot" and "storage unconfigured": what varies
+	// between those two cases is only the *headshot.Store the route is given (a real one
+	// with nothing stored for this user, vs. nil), never the membership fixture.
+	member := twoMemberStore()
+	member.ownerHandle = "backend-aaaa"
+	member.ownerID = 42
 	emptyPhotos := photoStoreWithOneMember(t, 999) // seeded for a DIFFERENT user id
 
 	nonMember := twoMemberStore()
-
-	storageDown := twoMemberStore()
-	storageDown.ownerHandle = "backend-aaaa"
-	storageDown.ownerID = 42
 
 	cases := []struct {
 		name   string
@@ -423,8 +422,8 @@ func TestTalentCatalogGetPhoto_EveryAbsenceReasonAnswersTheSame(t *testing.T) {
 		target string
 	}{
 		{"non-member handle", talentCatalogApp(nonMember, nil), "/talent/backend-aaaa/photo"},
-		{"member with no headshot", talentCatalogApp(memberNoPhoto, emptyPhotos), "/talent/backend-aaaa/photo"},
-		{"storage unconfigured", talentCatalogApp(storageDown, nil), "/talent/backend-aaaa/photo"},
+		{"member with no headshot", talentCatalogApp(member, emptyPhotos), "/talent/backend-aaaa/photo"},
+		{"storage unconfigured", talentCatalogApp(member, nil), "/talent/backend-aaaa/photo"},
 		{"malformed handle", talentCatalogApp(nonMember, nil), "/talent/NotAHandle/photo"},
 	}
 

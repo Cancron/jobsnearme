@@ -9,11 +9,13 @@ import (
 	"github.com/disintegration/imaging"
 )
 
-// blurSigma is the Gaussian blur radius applied to a stored headshot before it is ever
-// served publicly. Large enough that no facial feature survives as a distinct shape on
-// the 512 px square Normalize produces — chosen by looking at the result, not derived
-// from a formula, since "unrecognizable" is a visual judgment. Fixed, not configurable:
-// there is no deployment reason to tune how anonymous a public photo is.
+// blurSigma is the Gaussian kernel's standard deviation applied to a stored headshot
+// before it is ever served publicly (imaging.Blur's sigma parameter — not a pixel
+// radius; the kernel it drives reaches roughly 3*sigma, ~90px on the 512 px square
+// Normalize produces). Large enough that no facial feature survives as a distinct shape
+// — chosen by looking at the result, not derived from a formula, since "unrecognizable"
+// is a visual judgment. Fixed, not configurable: there is no deployment reason to tune
+// how anonymous a public photo is.
 const blurSigma = 30
 
 // Blur returns a strongly, irreversibly blurred rendering of a stored headshot. It never
