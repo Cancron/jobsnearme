@@ -10,7 +10,12 @@
   // I avoid" into one control that only Skills needed to reach.
   import { loadSkillDistribution } from '$lib/skillDictionary';
   import type { FacetOption } from '$lib/facets';
+  import { locale } from '$lib/i18n/currentLocale.svelte';
+  import { t } from '$lib/i18n/t';
+  import { messages } from './SkillsPicker.messages';
   import RemoteSearchSelect from '../facets/RemoteSearchSelect.svelte';
+
+  const s = $derived(t(messages, locale()));
 
   let {
     skills,
@@ -43,13 +48,13 @@
 
 <div class="flex flex-col gap-2 {busy ? 'pointer-events-none opacity-60' : ''}">
   <div class="flex items-baseline justify-between">
-    <span class="text-sm font-medium">Skills</span>
+    <span class="text-sm font-medium">{s.heading}</span>
     <span class="text-xs tabular-nums text-muted-foreground">{skills.length}</span>
   </div>
   <RemoteSearchSelect
     search={searchSkills}
     include={skills}
-    placeholder="Search skills"
+    placeholder={s.searchPlaceholder}
     onToggle={onToggleSkill}
     fallbackLabel={(v) => v}
     clearOnSelect

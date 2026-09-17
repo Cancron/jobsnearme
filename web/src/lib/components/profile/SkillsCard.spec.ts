@@ -1,7 +1,20 @@
 import { fireEvent, render, screen } from '@testing-library/svelte';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { UserProfile } from '$lib/types';
 import SkillsCard from './SkillsCard.svelte';
+
+// A mutable ref (the same shape ApiKeysView.spec.ts uses for its `user`) rather than a
+// fixed `{ locale: 'en' }`, so the i18n cases below can render under `'ru'` without a
+// second mock factory.
+const localeRef = vi.hoisted(() => ({ current: 'en' as 'en' | 'ru' }));
+vi.mock('$app/state', () => ({
+  page: {
+    get data() {
+      return { locale: localeRef.current };
+    },
+    url: new URL('http://localhost/'),
+  },
+}));
 
 const baseProfile: UserProfile = {
   specializations: ['backend'],
@@ -43,6 +56,10 @@ beforeEach(() => {
   removeSkill.mockReset().mockResolvedValue(baseProfile);
 });
 
+afterEach(() => {
+  localeRef.current = 'en';
+});
+
 describe('SkillsCard', () => {
   it('notifies onProfileChanged after removing a skill succeeds', async () => {
     const onProfileChanged = vi.fn();
@@ -75,5 +92,25 @@ describe('SkillsCard', () => {
     await fireEvent.click(screen.getByTitle('go'));
 
     expect(removeSkill).toHaveBeenCalledWith('go');
+  });
+});
+
+describe('SkillsCard — Russian locale', () => {
+  it('renders SkillsPicker\'s heading and search placeholder in Russian', () => {
+    localeRef.current = 'ru';
+    render(SkillsCard, { props: {} });
+
+    expect(screen.getByText('Навыки')).toBeTruthy();
+    expect(screen.getByPlaceholderText('Поиск навыков')).toBeTruthy();
+  });
+
+  it('renders the save-failure message in Russian', async () => {
+    localeRef.current = 'ru';
+    removeSkill.mockReset().mockRejectedValue(new Error('network error'));
+    render(SkillsCard, { props: {} });
+
+    await fireEvent.click(screen.getByTitle('go'));
+
+    expect(screen.getByText('Не удалось обновить go в вашем профиле. Попробуйте ещё раз.')).toBeTruthy();
   });
 });

@@ -3,7 +3,12 @@
   // steady-state (profile already exists) counterpart to the local, batched skills fields
   // ProfileForm still uses during first-time set-up.
   import { profileStore } from '$lib/profile.svelte';
+  import { locale } from '$lib/i18n/currentLocale.svelte';
+  import { format, t } from '$lib/i18n/t';
+  import { messages } from './SkillsCard.messages';
   import SkillsPicker from './SkillsPicker.svelte';
+
+  const s = $derived(t(messages, locale()));
 
   let {
     onProfileChanged,
@@ -53,8 +58,8 @@
   <SkillsPicker {skills} onToggleSkill={toggleSkill} busy={pending} />
 
   {#if lastSkillBlocked}
-    <p class="text-sm text-muted-foreground">You need at least one skill — add another before removing this one.</p>
+    <p class="text-sm text-muted-foreground">{s.lastSkillBlocked}</p>
   {:else if failed}
-    <p class="text-sm text-destructive">Could not update {failed} in your profile. Try again.</p>
+    <p class="text-sm text-destructive">{format(s.saveFailed, { skill: failed })}</p>
   {/if}
 </div>
