@@ -175,6 +175,29 @@ func TestSeedHistoryFromBankCapsThePlacelessBucketAtMaxBullets(t *testing.T) {
 	}
 }
 
+// experienceFromBank (WorkHistory/Professional — fit-analysis scoring, /me/profile) must
+// NOT cap: seedHistoryFromBank's cap exists for a printable CV page, and applying it here
+// too would silently drop evidence from what a candidate is matched against and reads
+// back about themselves. This is the regression the CV-seed bullet-cap fix risked if the
+// cap had landed in the shared publishableHighlights instead of seedHistoryFromBank alone.
+func TestWorkHistoryFromBankDoesNotCapAnEmploymentBucket(t *testing.T) {
+	jobID := uuid.New()
+	total := cv.MaxBullets + 5
+	atoms := make([]Atom, total)
+	for i := range atoms {
+		atoms[i] = Atom{EmploymentID: &jobID, Claim: fmt.Sprintf("claim %d", i), Provenance: ProvenanceCVImport}
+	}
+
+	flat := experienceFromBank([]Employment{{ID: jobID, Kind: KindJob, Company: "Acme"}}, atoms)
+
+	if len(flat) != 1 {
+		t.Fatalf("experience = %+v, want one row", flat)
+	}
+	if len(flat[0].Highlights) != total {
+		t.Fatalf("highlights = %d, want every banked achievement (%d), uncapped", len(flat[0].Highlights), total)
+	}
+}
+
 // WorkHistory still flattens projects into experience-shaped rows for fit analysis.
 func TestWorkHistoryStillFlattensProjects(t *testing.T) {
 	jobID := uuid.New()
