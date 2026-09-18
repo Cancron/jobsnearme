@@ -33,8 +33,9 @@
         ? `${data.job.title} at ${data.job.company} — apply on freehire.`
         : `${data.job.title} — apply on freehire.`)
   );
-  // The one breadcrumb trail feeding both the visible nav and the structured data below —
-  // a single array so the two can never disagree about what the trail is. There used to
+  // The one breadcrumb trail behind both the visible nav (via visibleBreadcrumbItems below)
+  // and the structured data — a single array so the two can never disagree about what the
+  // trail is. There used to
   // be no `Jobs` level here: `/jobs` was a 301 to `/`, and a trail step naming a redirect
   // is a step Google resolves away. That is now backwards — `/jobs` is the real feed and
   // `/` is the one that redirects (jobs/+page.server.ts's own comment: "The feed used to
@@ -59,6 +60,11 @@
       : []),
     { name: data.job.title },
   ]);
+  // Drops the trailing current-page entry for the visible nav: JobView renders the same
+  // title as the <h1> right below it, so repeating it here only wraps a long title onto
+  // a second line. JSON-LD below keeps the full breadcrumbItems — schema.org's
+  // BreadcrumbList is meant to name the page itself.
+  const visibleBreadcrumbItems = $derived(breadcrumbItems.slice(0, -1));
   const jsonLd = $derived(
     jsonLdScript([
       jobPostingJsonLd(data.job, origin),
@@ -90,7 +96,7 @@
        breadcrumb is expected, above the title. `hidden`/`sm:hidden` removes the inactive
        one from the accessibility tree too, so a screen reader only ever finds one nav
        landmark named "Breadcrumb". -->
-  <Breadcrumbs items={breadcrumbItems} class="mb-4 hidden sm:block" />
+  <Breadcrumbs items={visibleBreadcrumbItems} class="mb-4 hidden sm:block" />
 
   <JobView job={data.job} applyForm={data.applyForm} />
 
@@ -101,7 +107,7 @@
     slug={data.job.public_slug}
   />
 
-  <Breadcrumbs items={breadcrumbItems} class="mb-4 sm:hidden" />
+  <Breadcrumbs items={visibleBreadcrumbItems} class="mb-4 sm:hidden" />
 
   <JobSeeAlso cards={data.seeAlso} />
 
