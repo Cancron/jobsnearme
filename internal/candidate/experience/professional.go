@@ -5,6 +5,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/strelov1/freehire/internal/candidate/cv"
 	"github.com/strelov1/freehire/internal/candidate/resumeextract"
 )
 
@@ -157,6 +158,19 @@ func experienceRow(e Employment, highlights []string) resumeextract.Experience {
 	}
 }
 
+// publishableHighlights buckets every publishable atom by its employment (or into
+// placeless, for evidence with no employment at all), each bucket capped at
+// cv.MaxBullets — the same ceiling cvedit's CommitDocument refuses to exceed on the
+// write side (listcap.go). A bank atom carries no confidence or date signal of its own
+// (see the Atom struct), and the store lists atoms oldest-created first, so "most
+// relevant" here means most recently confirmed: mostRecent keeps the tail, not
+// limit's head, or a bucket over the cap would silently prefer stale evidence over
+// what the candidate most recently added.
+//
+// Capping HERE, not only at cvedit's write gate, is what stops "reset base CV from
+// résumé" refusing forever once a bank has simply grown past the ceiling over years
+// of real use: the write gate can only refuse a seed that is already too large, and
+// this function is what built it that way.
 func publishableHighlights(atoms []Atom) (map[uuid.UUID][]string, []string) {
 	highlights := make(map[uuid.UUID][]string)
 	var placeless []string
@@ -170,5 +184,9 @@ func publishableHighlights(atoms []Atom) (map[uuid.UUID][]string, []string) {
 		}
 		highlights[*atom.EmploymentID] = append(highlights[*atom.EmploymentID], atom.Claim)
 	}
+	for id, claims := range highlights {
+		highlights[id] = mostRecent(claims, cv.MaxBullets)
+	}
+	placeless = mostRecent(placeless, cv.MaxBullets)
 	return highlights, placeless
 }
