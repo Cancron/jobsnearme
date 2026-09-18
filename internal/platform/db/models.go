@@ -597,6 +597,8 @@ type IngestSchedule struct {
 	Managed        bool               `json:"managed"`
 	CreatedAt      pgtype.Timestamptz `json:"created_at"`
 	UpdatedAt      pgtype.Timestamptz `json:"updated_at"`
+	// Explicit heavy-pool override. A provider is ALSO heavy when ingest_run_state holds more than one row for it (sharded) -- see ingestsched.Settings.IsHeavy, which ORs the two the same way the scheduler's claim queries do.
+	Heavy bool `json:"heavy"`
 }
 
 type InsightsCompanyGrowth struct {
