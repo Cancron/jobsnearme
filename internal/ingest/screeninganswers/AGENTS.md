@@ -45,7 +45,7 @@ OpenSpec change).
 Sanitize (normalize country codes + currency case)
   → Validate (reject malformed input, naming the bad value)
     → Store.Update: Repository.UpdateLocked(userID, merge) — one transaction:
-        SELECT ... FOR UPDATE (ErrNotFound reads as fully-unstated) → merge → Upsert → commit
+        Ensure row exists → SELECT ... FOR UPDATE → merge → Upsert → commit
 ```
 `screeninganswers.go` holds the wire shape (`Answers`) and the pure `Sanitize`/`Validate`/
 `Merge` functions — no database, unit-testable without one. `store.go` is the owner-scoped
@@ -60,11 +60,15 @@ means two of them can race the same `userID` for real. `Store.Update` no longer 
 `Repository.Get` then `Repository.Upsert` as two independent statements (a caller could
 read the same "existing" row between them and lose the other write); it calls the single
 `Repository.UpdateLocked(ctx, userID, merge)`, whose `QueriesRepository` implementation
-opens one transaction, takes a row lock with `GetScreeningAnswersForUpdate` (`SELECT ...
-FOR UPDATE`; a no-op when the row doesn't exist yet, which reads as a fully-unstated
-`Answers{}`), calls `merge` exactly once with what it locked, and commits
-`UpsertScreeningAnswers` over the merged result before releasing the lock. A second
-concurrent `Update` for the same user blocks on the `FOR UPDATE` until the first commits,
-so it merges onto the first write's result instead of racing it on the same stale read —
-no new schema or version column, since Postgres's own row lock is the serialization
-point.
+opens one transaction, first calls `EnsureScreeningAnswersRow` (`INSERT ... ON CONFLICT
+(user_id) DO NOTHING`) so the row always exists before the lock is taken — `FOR UPDATE`
+locks nothing on an absent row, so without this step two concurrent *first* updates for
+the same brand-new user would each read `Answers{}` and race the unguarded upsert instead
+of serializing. With the row guaranteed present,
+`GetScreeningAnswersForUpdate` (`SELECT ... FOR UPDATE`) takes its lock, `merge` runs
+exactly once with what it locked, and `UpsertScreeningAnswers` commits the merged result
+before releasing the lock. A second concurrent `Update` for the same user — whether or not
+either has written before — blocks on `EnsureScreeningAnswersRow`/`FOR UPDATE` until the
+first commits, so it merges onto the first write's result instead of racing it on the same
+stale (or absent) read — no new schema or version column, since Postgres's own row-level
+locking is the serialization point.

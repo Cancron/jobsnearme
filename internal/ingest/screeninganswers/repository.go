@@ -39,13 +39,17 @@ func (r *QueriesRepository) Get(ctx context.Context, userID int64) (Answers, err
 	return answersFromRow(row), nil
 }
 
-// UpdateLocked runs the whole read-merge-write in one transaction: GetScreeningAnswersForUpdate
-// takes a row lock on the caller's existing record (nothing to lock when there is no row
-// yet, which reads as a fully-unstated Answers{}), merge combines it with the caller's
-// update, and the merged result is written back with the same UpsertScreeningAnswers
-// Store.Update used to call directly — all before the commit that releases the lock. A
-// second concurrent call for the same userID blocks on the SELECT ... FOR UPDATE until this
-// transaction commits, so it merges onto this write's result instead of the same stale row.
+// UpdateLocked runs the whole read-merge-write in one transaction: EnsureScreeningAnswersRow
+// guarantees the caller's row exists (an all-unstated one if this is their first Update), so
+// GetScreeningAnswersForUpdate always has a row to take its lock on — FOR UPDATE locks
+// nothing on an absent row, and without the ensure step two concurrent FIRST updates for the
+// same brand-new userID would each read Answers{} and race an unguarded
+// INSERT ... ON CONFLICT DO UPDATE instead of serializing. merge combines the locked read
+// with the caller's update, and the merged result is written back with the same
+// UpsertScreeningAnswers Store.Update used to call directly — all before the commit that
+// releases the lock. A second concurrent call for the same userID blocks on
+// EnsureScreeningAnswersRow/GetScreeningAnswersForUpdate until this transaction commits, so
+// it merges onto this write's result instead of the same stale (or absent) row.
 func (r *QueriesRepository) UpdateLocked(ctx context.Context, userID int64, merge func(existing Answers) Answers) (Answers, error) {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -54,6 +58,9 @@ func (r *QueriesRepository) UpdateLocked(ctx context.Context, userID int64, merg
 	defer func() { _ = tx.Rollback(ctx) }()
 
 	qtx := r.q.WithTx(tx)
+	if _, err := qtx.EnsureScreeningAnswersRow(ctx, userID); err != nil {
+		return Answers{}, err
+	}
 	existingRow, err := qtx.GetScreeningAnswersForUpdate(ctx, userID)
 	var existing Answers
 	switch {
