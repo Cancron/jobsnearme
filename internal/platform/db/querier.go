@@ -434,6 +434,36 @@ type Querier interface {
 	// park during preview resolution (a captcha, an unscannable page) predicts the identical
 	// outcome the real submission would hit, so there is nothing a retry here would fix either.
 	ClaimAutoApplyPreviewBatch(ctx context.Context, arg ClaimAutoApplyPreviewBatchParams) ([]ClaimAutoApplyPreviewBatchRow, error)
+	// Take up to max_runs due runs, exactly once each, from the HEAVY pool only. See
+	// ClaimDueLightRuns for the sibling that claims from the other pool: the scheduler calls
+	// both every tick, each against its own budget (ingestsched.DefaultHeavyCap /
+	// ingestsched.DefaultCap - DefaultHeavyCap), so a burst of long sharded crawls can never
+	// crowd the short tail out of the fleet the way deploy/bin/ingest-slot.sh's own HEAVY_SLOTS
+	// split exists to prevent for the flock semaphore this scheduler replaces.
+	//
+	// A provider is heavy when it is explicitly flagged (ingest_schedule.heavy) or SHARDED —
+	// more than one row in ingest_run_state for it. The two are ORed here exactly as
+	// ingestsched.Settings.IsHeavy ORs them in Go: every sharded family (workday, eightfold,
+	// oracle, paylocity, join, dayforce, workstream, adp, adpmyjobs) is heavy through the shard
+	// arm alone, and the flag exists for a curator to place a future single-shard-but-costly
+	// provider in this pool without sharding it.
+	//
+	// Otherwise identical to ClaimDueLightRuns and to the single query both replace: the CTE
+	// resolves cadence/timeout through the same LEFT JOIN and defaults the listing uses, so a
+	// claim can never disagree with the report; FOR UPDATE ... SKIP LOCKED is what makes two
+	// overlapping scheduler ticks safe, `OF rs` naming only the run-state table since FOR
+	// UPDATE may not apply to the nullable side of an outer join; a row is claimable when due
+	// and unclaimed, or when its claim has outlived the provider's timeout plus grace — a
+	// scheduler killed between claiming and launching, and a run systemd killed at its
+	// timeout, both recover through that arm with no operator; and next_due_at advances to
+	// now() + cadence, not to next_due_at + cadence, so a 40-minute crawl cannot halve its own
+	// frequency and a six-hour outage owes exactly one run rather than a stampede of six.
+	ClaimDueHeavyRuns(ctx context.Context, arg ClaimDueHeavyRunsParams) ([]ClaimDueHeavyRunsRow, error)
+	// The LIGHT pool's half of ClaimDueHeavyRuns: identical query, opposite gate. See that
+	// query's header for the reasoning shared by both — the predicate, the reclaim arm, the
+	// heavy/light split's purpose — and for why sqlc leaves the two written out in full rather
+	// than shared.
+	ClaimDueLightRuns(ctx context.Context, arg ClaimDueLightRunsParams) ([]ClaimDueLightRunsRow, error)
 	// Lease a batch of pending nudges, oldest first. FOR UPDATE OF n + SKIP LOCKED
 	// lets overlapping worker passes take disjoint rows so a nudge fires at most
 	// once; the lease predicate reclaims rows whose sender died (stale claimed_at).
@@ -459,24 +489,6 @@ type Querier interface {
 	// groups the result into one message per account, listing the jobs in the order it
 	// receives them. Without this the list order is whatever the join produced.
 	ClaimDueReminders(ctx context.Context, arg ClaimDueRemindersParams) ([]int64, error)
-	// Take up to max_runs due runs, exactly once each.
-	//
-	// The CTE resolves each candidate's cadence and timeout through the same LEFT JOIN and
-	// defaults as the listing above, so a claim can never use different numbers from the
-	// report. FOR UPDATE ... SKIP LOCKED is what makes two overlapping scheduler ticks safe:
-	// the second skips the rows the first holds rather than blocking on them or double-claiming.
-	// `OF rs` names only the run-state table, since FOR UPDATE may not be applied to the
-	// nullable side of an outer join.
-	//
-	// A row is claimable when it is due and unclaimed, or when its claim has outlived that
-	// provider's own timeout plus the grace window — a scheduler killed between claiming and
-	// launching, and a run systemd killed at its timeout, both recover through that second arm
-	// with no operator.
-	//
-	// next_due_at advances to now() + cadence, not to next_due_at + cadence. Advancing at
-	// claim stops a 40-minute crawl from halving its own frequency; advancing from now() caps
-	// catch-up at ONE run, so a six-hour outage does not owe six.
-	ClaimDueRuns(ctx context.Context, arg ClaimDueRunsParams) ([]ClaimDueRunsRow, error)
 	// Claim a wave of live, unleased entries by stamping claimed_at, newest email first,
 	// returning the email fields the matcher/classifier need. FOR UPDATE OF o locks only
 	// outbox rows; SKIP LOCKED lets concurrent workers take disjoint rows; the lease
@@ -3708,17 +3720,24 @@ type Querier interface {
 	// silence ladder it reads from, so both channels clear the same bar from the same
 	// source.
 	ListGhostReportEvidence(ctx context.Context, jobIds []int64) ([]ListGhostReportEvidenceRow, error)
-	// Every claimed run, with what the scheduler needs to ask the service manager about it.
+	// Every claimed HEAVY-pool run, with what the scheduler needs to ask the service manager
+	// about it. See ListInFlightLightRuns for the other pool, and ClaimDueHeavyRuns for what
+	// "heavy" means and why the two pools are counted apart: the budget each pool claims
+	// against next tick is that pool's own cap minus how many of ITS runs are still going, so a
+	// heavy provider running long must never shrink the light tail's own budget, and vice versa.
 	//
 	// Rows, not a count. A transient unit finishes and tells nobody, so claimed_at is set at
 	// claim and cleared by nothing until the scheduler reaps: a plain count would include every
 	// run that ever succeeded, and the fleet's concurrency cap would fill permanently after
 	// Cap launches with every check still green.
 	//
-	// This is what replaces ingest-slot.sh's flock semaphore. 279 independent timers could not
-	// see each other, so the ceiling had to live in a wrapper script; one scheduler can count —
-	// but only if it also notices when a run has ended.
-	ListInFlightRuns(ctx context.Context, defaultTimeoutSec int32) ([]ListInFlightRunsRow, error)
+	// This is what replaces ingest-slot.sh's flock semaphore, HEAVY_SLOTS split included. 279
+	// independent timers could not see each other, so the ceiling had to live in a wrapper
+	// script; one scheduler can count — but only if it also notices when a run has ended.
+	ListInFlightHeavyRuns(ctx context.Context, defaultTimeoutSec int32) ([]ListInFlightHeavyRunsRow, error)
+	// The LIGHT pool's half of ListInFlightHeavyRuns: identical query, opposite gate. See that
+	// query's header for why the fleet's claimed runs are counted apart by pool.
+	ListInFlightLightRuns(ctx context.Context, defaultTimeoutSec int32) ([]ListInFlightLightRunsRow, error)
 	// The referrer inbox: open (sent) requests for every company the referrer has an approved
 	// offer for. Joins the request pool to the caller's approved offers on company_slug, and
 	// the catalogue for the company's display name (LEFT so a request survives an unknown
@@ -4823,15 +4842,19 @@ type Querier interface {
 	// asking anyway would be one API call per person who signed up and never bought, which is
 	// almost all of them.
 	PendingInviteRewards(ctx context.Context, maxRows int32) ([]PendingInviteRewardsRow, error)
-	// What ClaimDueRuns WOULD take, without taking it. Shadow mode's read: the first
-	// deployment lands underneath a fleet still driven by the static timers, so a tick that
-	// advanced a due time would desynchronise state the real timers know nothing about.
+	// What ClaimDueHeavyRuns WOULD take from the heavy pool, without taking it. Shadow mode's
+	// read: the first deployment lands underneath a fleet still driven by the static timers, so
+	// a tick that advanced a due time would desynchronise state the real timers know nothing
+	// about. See PreviewDueLightRuns for the other pool.
 	//
-	// The predicate is copied from ClaimDueRuns rather than shared, because sqlc has no way to
-	// share one. A divergence between the two would make the shadow run a measurement of
+	// The predicate is copied from ClaimDueHeavyRuns rather than shared, because sqlc has no
+	// way to share one. A divergence between the two would make the shadow run a measurement of
 	// something other than what apply mode does, so they are asserted equivalent by an
 	// integration test rather than by inspection.
-	PreviewDueRuns(ctx context.Context, arg PreviewDueRunsParams) ([]PreviewDueRunsRow, error)
+	PreviewDueHeavyRuns(ctx context.Context, arg PreviewDueHeavyRunsParams) ([]PreviewDueHeavyRunsRow, error)
+	// The LIGHT pool's half of PreviewDueHeavyRuns: identical query, opposite gate, mirroring
+	// ClaimDueLightRuns the same way PreviewDueHeavyRuns mirrors ClaimDueHeavyRuns.
+	PreviewDueLightRuns(ctx context.Context, arg PreviewDueLightRunsParams) ([]PreviewDueLightRunsRow, error)
 	// Is this code usable right now? Read-only, and deliberately says nothing about WHY it is
 	// not: the route behind it is rate limited but still reachable by anyone with an account,
 	// and a refusal that distinguished "no such code" from "out of seats" would turn it into an
@@ -5631,8 +5654,9 @@ type Querier interface {
 	// paylocity rows would bury the answer.
 	//
 	// shards_in_state is counted from run state rather than read from the override, for the
-	// same reason ClaimDueRuns counts it: the rows ARE the shard count, and a report that read
-	// the intended number instead would show a healthy 24 while 12 rows existed.
+	// same reason ClaimDueHeavyRuns/ClaimDueLightRuns count it: the rows ARE the shard count,
+	// and a report that read the intended number instead would show a healthy 24 while 12 rows
+	// existed.
 	ReportIngestSchedule(ctx context.Context) ([]ReportIngestScheduleRow, error)
 	// The id span cmd/backfill-requirements walks. MIN/MAX over the primary key are two
 	// index probes, so this stays cheap on an 11M-row table — deliberately unfiltered,
