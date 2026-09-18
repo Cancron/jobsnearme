@@ -48,12 +48,22 @@ ON CONFLICT (provider, board, region) DO UPDATE SET
     last_run_at          = now()
 RETURNING consecutive_failures;
 
--- name: SetBoardCooldown :exec
+-- name: SetBoardCooldown :execrows
 -- Apply the Go-computed cooldown window to a board (called only when the backoff
 -- policy says to cool down).
+--
+-- Guarded by the consecutive_failures value the cooldown was computed FROM (the count
+-- RecordBoardFailure just returned), not merely the board's identity: the pipeline's worker
+-- pool can process the same board twice in one run, so two concurrent RecordFailure calls can
+-- race between their own RecordBoardFailure and this UPDATE. Without the guard, whichever
+-- SetBoardCooldown lands last wins regardless of which failure count is newer — an earlier,
+-- shorter cooldown can overwrite a later, longer one, or this call can clobber a cooldown a
+-- concurrent RecordSuccess/ClearProviderCooldowns just cleared. Zero rows affected means a
+-- newer writer already moved consecutive_failures past what this cooldown was computed from —
+-- expected under the race, not an error, and the caller applies nothing further.
 UPDATE board_health
 SET cooldown_until = $4
-WHERE provider = $1 AND board = $2 AND region = $3;
+WHERE provider = $1 AND board = $2 AND region = $3 AND consecutive_failures = $5;
 
 -- name: DeleteBoardHealth :execrows
 -- Drop a board's health row entirely, for a board just retired from the catalog: it will
