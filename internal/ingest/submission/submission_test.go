@@ -3,6 +3,7 @@ package submission_test
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/strelov1/freehire/internal/ingest/moderation"
@@ -142,6 +143,26 @@ func TestSubmit_PersistsPendingWithOwner(t *testing.T) {
 	}
 	if got.Location != "Berlin" || !got.Remote {
 		t.Errorf("optional fields not carried: location=%q remote=%v", got.Location, got.Remote)
+	}
+}
+
+func TestSubmit_SanitizesDescriptionBeforePersist(t *testing.T) {
+	repo := &fakeRepo{createRet: submission.Submission{ID: 1, Status: "pending"}}
+	in := validInput()
+	in.Description = "Build it<script>alert(1)</script>"
+
+	_, err := submission.New(repo, &fakeMinter{}).Submit(context.Background(), 7, in)
+	if err != nil {
+		t.Fatalf("Submit: %v", err)
+	}
+	if !repo.createCalled {
+		t.Fatal("repo.Create was not called")
+	}
+	if strings.Contains(repo.created.Description, "<script") {
+		t.Errorf("repo.Create received unsanitized description: %q", repo.created.Description)
+	}
+	if repo.created.Description != "Build it" {
+		t.Errorf("description = %q, want sanitized %q", repo.created.Description, "Build it")
 	}
 }
 
