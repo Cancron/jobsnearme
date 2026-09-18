@@ -341,7 +341,22 @@ systemctl disable --now freehire-ingest@custom.timer 2>/dev/null || true
 # N-1: doubling the period without moving them would clump all six shards into hours 0-5
 # and 12-17 and leave half the day empty.
 # ExecStart uses hire-current (the active blue/green release), matching the workers.
-cat > /etc/systemd/system/freehire-ingest-workday-shard@.service <<'UNIT'
+#
+# Guarded by MANAGED the same LEFT JOIN rule the plain per-provider loop enforces above: a
+# provider cut over to the scheduler (ingest_schedule.managed=true) must not also carry a
+# shard timer, or the two ceilings drive it at once. A managed provider's shard timers are
+# retired instead of (re)created — symmetric to how the sweep at the bottom retires the
+# plain timer of a provider that dropped out, but done here rather than there because the
+# sweep only ever sees the plain `freehire-ingest@*.timer` glob, never the shard units.
+# Every shard block below repeats this same guard against its own provider name.
+if [ -n "${MANAGED[workday]:-}" ]; then
+  systemctl disable --now freehire-ingest@workday.timer 2>/dev/null || true
+  for N in 1 2 3 4 5 6; do
+    systemctl disable --now "freehire-ingest-workday-shard@$N.timer" 2>/dev/null || true
+  done
+  echo "workday is managed by the scheduler — retired any workday shard timers"
+else
+  cat > /etc/systemd/system/freehire-ingest-workday-shard@.service <<'UNIT'
 [Unit]
 Description=freehire ingest workday shard %i/6
 After=network.target postgresql.service meilisearch.service
@@ -355,10 +370,10 @@ IOWeight=40
 TimeoutStartSec=3000
 ExecStart=/opt/freehire/bin/ingest-slot.sh /opt/freehire/src/hire-current/ingest workday --shard=%i/6
 UNIT
-# Retire any legacy hourly full-file workday timer so it can't race the shards.
-systemctl disable --now freehire-ingest@workday.timer 2>/dev/null || true
-for N in 1 2 3 4 5 6; do
-  cat > "/etc/systemd/system/freehire-ingest-workday-shard@$N.timer" <<TIMER
+  # Retire any legacy hourly full-file workday timer so it can't race the shards.
+  systemctl disable --now freehire-ingest@workday.timer 2>/dev/null || true
+  for N in 1 2 3 4 5 6; do
+    cat > "/etc/systemd/system/freehire-ingest-workday-shard@$N.timer" <<TIMER
 [Unit]
 Description=timer ingest workday shard $N/6
 [Timer]
@@ -368,16 +383,26 @@ RandomizedDelaySec=180
 [Install]
 WantedBy=timers.target
 TIMER
-  systemctl enable --now "freehire-ingest-workday-shard@$N.timer" >/dev/null
-done
-echo "generated + enabled 6 workday shard timers"
+    systemctl enable --now "freehire-ingest-workday-shard@$N.timer" >/dev/null
+  done
+  echo "generated + enabled 6 workday shard timers"
+fi
 
 # eightfold shards: one service template (--shard=N/4) + 4 timers, each every 4h, offset
 # one hour apart so a single ~13-board shard runs per hour. Sharding isolates the giant
 # boards (nvidia/hp/citi) so one slow board can't starve the rest or blow the timeout;
 # staggering keeps the shards from contending for the single egress proxy IP. The proxy
 # itself is env-driven (SOURCES_PROXY_URL in /opt/freehire/.env, read via EnvironmentFile).
-cat > /etc/systemd/system/freehire-ingest-eightfold-shard@.service <<'UNIT'
+# Managed guard: same rule as workday above — a provider cut over to the scheduler must
+# not also carry shard timers.
+if [ -n "${MANAGED[eightfold]:-}" ]; then
+  systemctl disable --now freehire-ingest@eightfold.timer 2>/dev/null || true
+  for N in 1 2 3 4; do
+    systemctl disable --now "freehire-ingest-eightfold-shard@$N.timer" 2>/dev/null || true
+  done
+  echo "eightfold is managed by the scheduler — retired any eightfold shard timers"
+else
+  cat > /etc/systemd/system/freehire-ingest-eightfold-shard@.service <<'UNIT'
 [Unit]
 Description=freehire ingest eightfold shard %i/4
 After=network.target postgresql.service meilisearch.service
@@ -391,10 +416,10 @@ IOWeight=40
 TimeoutStartSec=3000
 ExecStart=/opt/freehire/bin/ingest-slot.sh /opt/freehire/src/hire-current/ingest eightfold --shard=%i/4
 UNIT
-# Retire any legacy hourly full-file eightfold timer so it can't race the shards.
-systemctl disable --now freehire-ingest@eightfold.timer 2>/dev/null || true
-for N in 1 2 3 4; do
-  cat > "/etc/systemd/system/freehire-ingest-eightfold-shard@$N.timer" <<TIMER
+  # Retire any legacy hourly full-file eightfold timer so it can't race the shards.
+  systemctl disable --now freehire-ingest@eightfold.timer 2>/dev/null || true
+  for N in 1 2 3 4; do
+    cat > "/etc/systemd/system/freehire-ingest-eightfold-shard@$N.timer" <<TIMER
 [Unit]
 Description=timer ingest eightfold shard $N/4
 [Timer]
@@ -404,16 +429,26 @@ RandomizedDelaySec=180
 [Install]
 WantedBy=timers.target
 TIMER
-  systemctl enable --now "freehire-ingest-eightfold-shard@$N.timer" >/dev/null
-done
-echo "generated + enabled 4 eightfold shard timers"
+    systemctl enable --now "freehire-ingest-eightfold-shard@$N.timer" >/dev/null
+  done
+  echo "generated + enabled 4 eightfold shard timers"
+fi
 
 # oracle shards: one service template (--shard=N/4) + 4 timers, each every 4h, offset one
 # hour apart so a single ~199-board shard runs per hour (measured ~6.82s/board including its
 # per-posting detail fan-out, so a shard finishes in ~23min, comfortably inside the 3000s
 # timeout) and the whole 796-board file cycles once every 4h — well inside the 48h unseen-sweep
 # grace window. See issue #2017: the un-sharded hourly-then-3h timer never finished a pass.
-cat > /etc/systemd/system/freehire-ingest-oracle-shard@.service <<'UNIT'
+# Managed guard: same rule as workday above — a provider cut over to the scheduler must
+# not also carry shard timers.
+if [ -n "${MANAGED[oracle]:-}" ]; then
+  systemctl disable --now freehire-ingest@oracle.timer 2>/dev/null || true
+  for N in 1 2 3 4; do
+    systemctl disable --now "freehire-ingest-oracle-shard@$N.timer" 2>/dev/null || true
+  done
+  echo "oracle is managed by the scheduler — retired any oracle shard timers"
+else
+  cat > /etc/systemd/system/freehire-ingest-oracle-shard@.service <<'UNIT'
 [Unit]
 Description=freehire ingest oracle shard %i/4
 After=network.target postgresql.service meilisearch.service
@@ -427,10 +462,10 @@ IOWeight=40
 TimeoutStartSec=3000
 ExecStart=/opt/freehire/bin/ingest-slot.sh /opt/freehire/src/hire-current/ingest oracle --shard=%i/4
 UNIT
-# Retire any legacy oracle timer (hourly, then 3h HEAVY) so it can't race the shards.
-systemctl disable --now freehire-ingest@oracle.timer 2>/dev/null || true
-for N in 1 2 3 4; do
-  cat > "/etc/systemd/system/freehire-ingest-oracle-shard@$N.timer" <<TIMER
+  # Retire any legacy oracle timer (hourly, then 3h HEAVY) so it can't race the shards.
+  systemctl disable --now freehire-ingest@oracle.timer 2>/dev/null || true
+  for N in 1 2 3 4; do
+    cat > "/etc/systemd/system/freehire-ingest-oracle-shard@$N.timer" <<TIMER
 [Unit]
 Description=timer ingest oracle shard $N/4
 [Timer]
@@ -440,9 +475,10 @@ RandomizedDelaySec=180
 [Install]
 WantedBy=timers.target
 TIMER
-  systemctl enable --now "freehire-ingest-oracle-shard@$N.timer" >/dev/null
-done
-echo "generated + enabled 4 oracle shard timers"
+    systemctl enable --now "freehire-ingest-oracle-shard@$N.timer" >/dev/null
+  done
+  echo "generated + enabled 4 oracle shard timers"
+fi
 
 # paylocity shards: one service template (--shard=N/24) + 24 timers, each once a day at a
 # distinct hour, so a single ~395-board shard runs per hour and the whole 9477-board file
@@ -453,7 +489,16 @@ echo "generated + enabled 4 oracle shard timers"
 # raising past the generic 3000s template: 395 boards * 10.42s =~ 4117s, so
 # TimeoutStartSec=4500 here (not the 3000s every other provider uses) leaves ~6min margin
 # rather than shaving the shard count down to fit the generic timeout. See issue #2017.
-cat > /etc/systemd/system/freehire-ingest-paylocity-shard@.service <<'UNIT'
+# Managed guard: same rule as workday above — a provider cut over to the scheduler must
+# not also carry shard timers.
+if [ -n "${MANAGED[paylocity]:-}" ]; then
+  systemctl disable --now freehire-ingest@paylocity.timer 2>/dev/null || true
+  for N in $(seq 1 24); do
+    systemctl disable --now "freehire-ingest-paylocity-shard@$N.timer" 2>/dev/null || true
+  done
+  echo "paylocity is managed by the scheduler — retired any paylocity shard timers"
+else
+  cat > /etc/systemd/system/freehire-ingest-paylocity-shard@.service <<'UNIT'
 [Unit]
 Description=freehire ingest paylocity shard %i/24
 After=network.target postgresql.service meilisearch.service
@@ -467,10 +512,10 @@ IOWeight=40
 TimeoutStartSec=4500
 ExecStart=/opt/freehire/bin/ingest-slot.sh /opt/freehire/src/hire-current/ingest paylocity --shard=%i/24
 UNIT
-# Retire any legacy paylocity timer (hourly, then 3h HEAVY) so it can't race the shards.
-systemctl disable --now freehire-ingest@paylocity.timer 2>/dev/null || true
-for N in $(seq 1 24); do
-  cat > "/etc/systemd/system/freehire-ingest-paylocity-shard@$N.timer" <<TIMER
+  # Retire any legacy paylocity timer (hourly, then 3h HEAVY) so it can't race the shards.
+  systemctl disable --now freehire-ingest@paylocity.timer 2>/dev/null || true
+  for N in $(seq 1 24); do
+    cat > "/etc/systemd/system/freehire-ingest-paylocity-shard@$N.timer" <<TIMER
 [Unit]
 Description=timer ingest paylocity shard $N/24
 [Timer]
@@ -480,9 +525,10 @@ RandomizedDelaySec=180
 [Install]
 WantedBy=timers.target
 TIMER
-  systemctl enable --now "freehire-ingest-paylocity-shard@$N.timer" >/dev/null
-done
-echo "generated + enabled 24 paylocity shard timers"
+    systemctl enable --now "freehire-ingest-paylocity-shard@$N.timer" >/dev/null
+  done
+  echo "generated + enabled 24 paylocity shard timers"
+fi
 
 # adp shards: one service template (--shard=N/8) + 8 timers, one every 3h, so the whole
 # catalogue cycles once every 24h.
@@ -498,7 +544,16 @@ echo "generated + enabled 24 paylocity shard timers"
 # with any = 8.6 each), so a board is one listing call plus its detail fan-out — measured
 # ~3s under the provider's 5 req/s pacer. 7,890/8 = 986 boards a shard =~ 2,958s, inside the
 # raised TimeoutStartSec=4500 with margin rather than shaved to fit the generic 3000s.
-cat > /etc/systemd/system/freehire-ingest-adp-shard@.service <<'UNIT'
+# Managed guard: same rule as workday above — a provider cut over to the scheduler must
+# not also carry shard timers.
+if [ -n "${MANAGED[adp]:-}" ]; then
+  systemctl disable --now freehire-ingest@adp.timer 2>/dev/null || true
+  for N in $(seq 1 8); do
+    systemctl disable --now "freehire-ingest-adp-shard@$N.timer" 2>/dev/null || true
+  done
+  echo "adp is managed by the scheduler — retired any adp shard timers"
+else
+  cat > /etc/systemd/system/freehire-ingest-adp-shard@.service <<'UNIT'
 [Unit]
 Description=freehire ingest adp shard %i/8
 After=network.target postgresql.service meilisearch.service
@@ -512,10 +567,10 @@ IOWeight=40
 TimeoutStartSec=4500
 ExecStart=/opt/freehire/bin/ingest-slot.sh /opt/freehire/src/hire-current/ingest adp --shard=%i/8
 UNIT
-# Retire the legacy hourly timer so it can't race the shards.
-systemctl disable --now freehire-ingest@adp.timer 2>/dev/null || true
-for N in $(seq 1 8); do
-  cat > "/etc/systemd/system/freehire-ingest-adp-shard@$N.timer" <<TIMER
+  # Retire the legacy hourly timer so it can't race the shards.
+  systemctl disable --now freehire-ingest@adp.timer 2>/dev/null || true
+  for N in $(seq 1 8); do
+    cat > "/etc/systemd/system/freehire-ingest-adp-shard@$N.timer" <<TIMER
 [Unit]
 Description=timer ingest adp shard $N/8
 [Timer]
@@ -525,9 +580,10 @@ RandomizedDelaySec=180
 [Install]
 WantedBy=timers.target
 TIMER
-  systemctl enable --now "freehire-ingest-adp-shard@$N.timer" >/dev/null
-done
-echo "generated + enabled 8 adp shard timers"
+    systemctl enable --now "freehire-ingest-adp-shard@$N.timer" >/dev/null
+  done
+  echo "generated + enabled 8 adp shard timers"
+fi
 
 # adpmyjobs shards: the same 8-way split for ADP's other career-site product, added
 # 2026-09-09 with 498 boards and killed on 7 of its 8 firings in the first day, reaching
@@ -540,7 +596,16 @@ echo "generated + enabled 8 adp shard timers"
 # direction. Sharding is what fixes the timeout; the pacer is a separate lever, and it is
 # deliberately not touched here: board_health carries zero failures for this provider, which
 # says the current rate is safe, not that a higher one would be.
-cat > /etc/systemd/system/freehire-ingest-adpmyjobs-shard@.service <<'UNIT'
+# Managed guard: same rule as workday above — a provider cut over to the scheduler must
+# not also carry shard timers.
+if [ -n "${MANAGED[adpmyjobs]:-}" ]; then
+  systemctl disable --now freehire-ingest@adpmyjobs.timer 2>/dev/null || true
+  for N in $(seq 1 8); do
+    systemctl disable --now "freehire-ingest-adpmyjobs-shard@$N.timer" 2>/dev/null || true
+  done
+  echo "adpmyjobs is managed by the scheduler — retired any adpmyjobs shard timers"
+else
+  cat > /etc/systemd/system/freehire-ingest-adpmyjobs-shard@.service <<'UNIT'
 [Unit]
 Description=freehire ingest adpmyjobs shard %i/8
 After=network.target postgresql.service meilisearch.service
@@ -554,10 +619,10 @@ IOWeight=40
 TimeoutStartSec=4500
 ExecStart=/opt/freehire/bin/ingest-slot.sh /opt/freehire/src/hire-current/ingest adpmyjobs --shard=%i/8
 UNIT
-# Retire the legacy hourly timer so it can't race the shards.
-systemctl disable --now freehire-ingest@adpmyjobs.timer 2>/dev/null || true
-for N in $(seq 1 8); do
-  cat > "/etc/systemd/system/freehire-ingest-adpmyjobs-shard@$N.timer" <<TIMER
+  # Retire the legacy hourly timer so it can't race the shards.
+  systemctl disable --now freehire-ingest@adpmyjobs.timer 2>/dev/null || true
+  for N in $(seq 1 8); do
+    cat > "/etc/systemd/system/freehire-ingest-adpmyjobs-shard@$N.timer" <<TIMER
 [Unit]
 Description=timer ingest adpmyjobs shard $N/8
 [Timer]
@@ -567,9 +632,10 @@ RandomizedDelaySec=180
 [Install]
 WantedBy=timers.target
 TIMER
-  systemctl enable --now "freehire-ingest-adpmyjobs-shard@$N.timer" >/dev/null
-done
-echo "generated + enabled 8 adpmyjobs shard timers"
+    systemctl enable --now "freehire-ingest-adpmyjobs-shard@$N.timer" >/dev/null
+  done
+  echo "generated + enabled 8 adpmyjobs shard timers"
+fi
 
 # join shards: one service template (--shard=N/5) + 5 timers, each every 5h at :20, offset one
 # hour apart so a single shard runs per hour and the whole ~4749-board file cycles once every
@@ -583,7 +649,16 @@ echo "generated + enabled 8 adpmyjobs shard timers"
 # generator carried them — this block brings the script back in sync with what is actually
 # running, so a future re-run of this script does not resurrect the retired
 # freehire-ingest@join.timer underneath them.
-cat > /etc/systemd/system/freehire-ingest-join-shard@.service <<'UNIT'
+# Managed guard: same rule as workday above — a provider cut over to the scheduler must
+# not also carry shard timers.
+if [ -n "${MANAGED[join]:-}" ]; then
+  systemctl disable --now freehire-ingest@join.timer 2>/dev/null || true
+  for N in 1 2 3 4 5; do
+    systemctl disable --now "freehire-ingest-join-shard@$N.timer" 2>/dev/null || true
+  done
+  echo "join is managed by the scheduler — retired any join shard timers"
+else
+  cat > /etc/systemd/system/freehire-ingest-join-shard@.service <<'UNIT'
 [Unit]
 Description=freehire ingest join shard %i/5
 After=network.target postgresql.service meilisearch.service
@@ -597,10 +672,10 @@ IOWeight=40
 TimeoutStartSec=3000
 ExecStart=/opt/freehire/bin/ingest-slot.sh /opt/freehire/src/hire-current/ingest join --shard=%i/5
 UNIT
-# Retire any legacy hourly full-file join timer so it can't race the shards.
-systemctl disable --now freehire-ingest@join.timer 2>/dev/null || true
-for N in 1 2 3 4 5; do
-  cat > "/etc/systemd/system/freehire-ingest-join-shard@$N.timer" <<TIMER
+  # Retire any legacy hourly full-file join timer so it can't race the shards.
+  systemctl disable --now freehire-ingest@join.timer 2>/dev/null || true
+  for N in 1 2 3 4 5; do
+    cat > "/etc/systemd/system/freehire-ingest-join-shard@$N.timer" <<TIMER
 [Unit]
 Description=timer ingest join shard $N/5
 [Timer]
@@ -610,16 +685,26 @@ RandomizedDelaySec=180
 [Install]
 WantedBy=timers.target
 TIMER
-  systemctl enable --now "freehire-ingest-join-shard@$N.timer" >/dev/null
-done
-echo "generated + enabled 5 join shard timers"
+    systemctl enable --now "freehire-ingest-join-shard@$N.timer" >/dev/null
+  done
+  echo "generated + enabled 5 join shard timers"
+fi
 
 # dayforce shards: one service template (--shard=N/4) + 4 timers, each every 4h at :42,
 # offset one hour apart. Hand-installed on host2 outside this generator (found as drift
 # while fixing the provider-argument cutover, freehire#2357) — folded in here so a future
 # regen reproduces it instead of dropping it. TimeoutStartSec=4500, like oracle/paylocity's
 # per-posting-detail-fan-out boards.
-cat > /etc/systemd/system/freehire-ingest-dayforce-shard@.service <<'UNIT'
+# Managed guard: same rule as workday above — a provider cut over to the scheduler must
+# not also carry shard timers.
+if [ -n "${MANAGED[dayforce]:-}" ]; then
+  systemctl disable --now freehire-ingest@dayforce.timer 2>/dev/null || true
+  for N in 1 2 3 4; do
+    systemctl disable --now "freehire-ingest-dayforce-shard@$N.timer" 2>/dev/null || true
+  done
+  echo "dayforce is managed by the scheduler — retired any dayforce shard timers"
+else
+  cat > /etc/systemd/system/freehire-ingest-dayforce-shard@.service <<'UNIT'
 [Unit]
 Description=freehire ingest dayforce shard %i/4
 After=network.target postgresql.service meilisearch.service
@@ -633,9 +718,9 @@ IOWeight=40
 TimeoutStartSec=4500
 ExecStart=/opt/freehire/bin/ingest-slot.sh /opt/freehire/src/hire-current/ingest dayforce --shard=%i/4
 UNIT
-systemctl disable --now freehire-ingest@dayforce.timer 2>/dev/null || true
-for N in 1 2 3 4; do
-  cat > "/etc/systemd/system/freehire-ingest-dayforce-shard@$N.timer" <<TIMER
+  systemctl disable --now freehire-ingest@dayforce.timer 2>/dev/null || true
+  for N in 1 2 3 4; do
+    cat > "/etc/systemd/system/freehire-ingest-dayforce-shard@$N.timer" <<TIMER
 [Unit]
 Description=timer ingest dayforce shard $N/4
 [Timer]
@@ -645,15 +730,25 @@ RandomizedDelaySec=180
 [Install]
 WantedBy=timers.target
 TIMER
-  systemctl enable --now "freehire-ingest-dayforce-shard@$N.timer" >/dev/null
-done
-echo "generated + enabled 4 dayforce shard timers"
+    systemctl enable --now "freehire-ingest-dayforce-shard@$N.timer" >/dev/null
+  done
+  echo "generated + enabled 4 dayforce shard timers"
+fi
 
 # workstream shards: one service template (--shard=N/2) + 2 timers, every 6h at :57,
 # offset 3 hours apart. workstream paces to ~0.5 req/s by its own origin's IP metering —
 # a shard is ~40min steady-state, longer on the first hydrating pass (see the comment
 # carried into the service unit below). Same hand-installed-drift story as dayforce.
-cat > /etc/systemd/system/freehire-ingest-workstream-shard@.service <<'UNIT'
+# Managed guard: same rule as workday above — a provider cut over to the scheduler must
+# not also carry shard timers.
+if [ -n "${MANAGED[workstream]:-}" ]; then
+  systemctl disable --now freehire-ingest@workstream.timer 2>/dev/null || true
+  for N in 1 2; do
+    systemctl disable --now "freehire-ingest-workstream-shard@$N.timer" 2>/dev/null || true
+  done
+  echo "workstream is managed by the scheduler — retired any workstream shard timers"
+else
+  cat > /etc/systemd/system/freehire-ingest-workstream-shard@.service <<'UNIT'
 [Unit]
 Description=freehire ingest workstream shard %i/2
 After=network.target postgresql.service meilisearch.service
@@ -675,9 +770,9 @@ IOWeight=40
 TimeoutStartSec=4500
 ExecStart=/opt/freehire/bin/ingest-slot.sh /opt/freehire/src/hire-current/ingest workstream --shard=%i/2
 UNIT
-systemctl disable --now freehire-ingest@workstream.timer 2>/dev/null || true
-for N in 1 2; do
-  cat > "/etc/systemd/system/freehire-ingest-workstream-shard@$N.timer" <<TIMER
+  systemctl disable --now freehire-ingest@workstream.timer 2>/dev/null || true
+  for N in 1 2; do
+    cat > "/etc/systemd/system/freehire-ingest-workstream-shard@$N.timer" <<TIMER
 [Unit]
 Description=timer ingest workstream shard $N/2
 [Timer]
@@ -687,9 +782,10 @@ RandomizedDelaySec=180
 [Install]
 WantedBy=timers.target
 TIMER
-  systemctl enable --now "freehire-ingest-workstream-shard@$N.timer" >/dev/null
-done
-echo "generated + enabled 2 workstream shard timers"
+    systemctl enable --now "freehire-ingest-workstream-shard@$N.timer" >/dev/null
+  done
+  echo "generated + enabled 2 workstream shard timers"
+fi
 
 # The sweep. Retires the per-provider timer of a provider that has LEFT the catalogue —
 # every board of it retired, rejected, or deleted.
