@@ -36,6 +36,37 @@ func (q *Queries) GetScreeningAnswers(ctx context.Context, userID int64) (Screen
 	return i, err
 }
 
+const getScreeningAnswersForUpdate = `-- name: GetScreeningAnswersForUpdate :one
+SELECT user_id, authorized_countries, visa_sponsorship_needed, desired_salary_amount, desired_salary_currency, desired_salary_period, notice_period_days, willing_to_relocate, age_18_or_older, updated_at FROM screening_answers
+WHERE user_id = $1
+FOR UPDATE
+`
+
+// Same as GetScreeningAnswers, but takes a row lock (SELECT ... FOR UPDATE) for the rest
+// of the caller's transaction, so a concurrent Update for the same user_id blocks on this
+// SELECT until the first transaction commits instead of both reading the same stale row
+// and racing a lost update (see QueriesRepository.UpdateLocked). No matching row means the
+// candidate has not stated any screening answer yet; FOR UPDATE locks nothing in that case,
+// since there is no row to lock — the caller must treat pgx.ErrNoRows the same way
+// GetScreeningAnswers's callers do.
+func (q *Queries) GetScreeningAnswersForUpdate(ctx context.Context, userID int64) (ScreeningAnswer, error) {
+	row := q.db.QueryRow(ctx, getScreeningAnswersForUpdate, userID)
+	var i ScreeningAnswer
+	err := row.Scan(
+		&i.UserID,
+		&i.AuthorizedCountries,
+		&i.VisaSponsorshipNeeded,
+		&i.DesiredSalaryAmount,
+		&i.DesiredSalaryCurrency,
+		&i.DesiredSalaryPeriod,
+		&i.NoticePeriodDays,
+		&i.WillingToRelocate,
+		&i.Age18OrOlder,
+		&i.UpdatedAt,
+	)
+	return i, err
+}
+
 const upsertScreeningAnswers = `-- name: UpsertScreeningAnswers :one
 INSERT INTO screening_answers (
     user_id, authorized_countries, visa_sponsorship_needed,

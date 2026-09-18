@@ -2540,6 +2540,14 @@ type Querier interface {
 	// The caller's single screening-answers record, keyed by user_id. No matching row means
 	// the candidate has not stated any screening answer yet.
 	GetScreeningAnswers(ctx context.Context, userID int64) (ScreeningAnswer, error)
+	// Same as GetScreeningAnswers, but takes a row lock (SELECT ... FOR UPDATE) for the rest
+	// of the caller's transaction, so a concurrent Update for the same user_id blocks on this
+	// SELECT until the first transaction commits instead of both reading the same stale row
+	// and racing a lost update (see QueriesRepository.UpdateLocked). No matching row means the
+	// candidate has not stated any screening answer yet; FOR UPDATE locks nothing in that case,
+	// since there is no row to lock — the caller must treat pgx.ErrNoRows the same way
+	// GetScreeningAnswers's callers do.
+	GetScreeningAnswersForUpdate(ctx context.Context, userID int64) (ScreeningAnswer, error)
 	// Narrow read for GET /jobs/:slug/similar (internal/api/handler/similar.go): only the
 	// precomputed neighbour-id list (jobs.similar_job_ids, populated by
 	// cmd/similar-backfill — see semantic.sql's job_semantic_chunks section), not the

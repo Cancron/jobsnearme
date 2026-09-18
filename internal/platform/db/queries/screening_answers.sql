@@ -4,6 +4,18 @@
 SELECT * FROM screening_answers
 WHERE user_id = $1;
 
+-- name: GetScreeningAnswersForUpdate :one
+-- Same as GetScreeningAnswers, but takes a row lock (SELECT ... FOR UPDATE) for the rest
+-- of the caller's transaction, so a concurrent Update for the same user_id blocks on this
+-- SELECT until the first transaction commits instead of both reading the same stale row
+-- and racing a lost update (see QueriesRepository.UpdateLocked). No matching row means the
+-- candidate has not stated any screening answer yet; FOR UPDATE locks nothing in that case,
+-- since there is no row to lock — the caller must treat pgx.ErrNoRows the same way
+-- GetScreeningAnswers's callers do.
+SELECT * FROM screening_answers
+WHERE user_id = $1
+FOR UPDATE;
+
 -- name: UpsertScreeningAnswers :one
 -- Create-or-replace the caller's one screening-answers record. Full-replace, mirroring
 -- UpsertUserProfile: the service reads the current row, merges caller-provided fields over

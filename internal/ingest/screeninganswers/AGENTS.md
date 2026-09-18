@@ -44,14 +44,27 @@ OpenSpec change).
 ```
 Sanitize (normalize country codes + currency case)
   → Validate (reject malformed input, naming the bad value)
-    → Store.Update: Get existing (ErrNotFound reads as fully-unstated) → Merge → Upsert
+    → Store.Update: Repository.UpdateLocked(userID, merge) — one transaction:
+        SELECT ... FOR UPDATE (ErrNotFound reads as fully-unstated) → merge → Upsert → commit
 ```
 `screeninganswers.go` holds the wire shape (`Answers`) and the pure `Sanitize`/`Validate`/
 `Merge` functions — no database, unit-testable without one. `store.go` is the owner-scoped
-`Store` over a narrow `Repository`; `repository.go` adapts `*db.Queries` to it, mirroring
-`internal/identity/userprofile`'s split exactly (single row, `PRIMARY KEY (user_id)`, `Get` maps
-`pgx.ErrNoRows` to `ErrNotFound`, `Upsert` is conflict-free by construction).
+`Store` over a narrow `Repository`; `repository.go` adapts `*db.Queries` + the pool to it,
+mirroring `internal/identity/userprofile`'s split (single row, `PRIMARY KEY (user_id)`, `Get`
+maps `pgx.ErrNoRows` to `ErrNotFound`) except for the write path.
 
-Two consumers write through the same `Store.Update`: the manual-edit HTTP handler and the
-assistant's `screening_answers_set` tool. Both accept a partial `Answers` and get the same
-merge-and-validate behavior — there is exactly one write path, not two.
+**`Update` is a locked read-merge-write, not two separate calls.** Two consumers write
+through the same `Store.Update`: the manual-edit HTTP handler and the assistant's
+`screening_answers_set` tool — both documented as writing through this one path, which
+means two of them can race the same `userID` for real. `Store.Update` no longer calls
+`Repository.Get` then `Repository.Upsert` as two independent statements (a caller could
+read the same "existing" row between them and lose the other write); it calls the single
+`Repository.UpdateLocked(ctx, userID, merge)`, whose `QueriesRepository` implementation
+opens one transaction, takes a row lock with `GetScreeningAnswersForUpdate` (`SELECT ...
+FOR UPDATE`; a no-op when the row doesn't exist yet, which reads as a fully-unstated
+`Answers{}`), calls `merge` exactly once with what it locked, and commits
+`UpsertScreeningAnswers` over the merged result before releasing the lock. A second
+concurrent `Update` for the same user blocks on the `FOR UPDATE` until the first commits,
+so it merges onto the first write's result instead of racing it on the same stale read —
+no new schema or version column, since Postgres's own row lock is the serialization
+point.
