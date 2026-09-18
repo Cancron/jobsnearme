@@ -15,6 +15,7 @@ import (
 
 	"github.com/strelov1/freehire/internal/ingest/moderation"
 	"github.com/strelov1/freehire/internal/job/job"
+	"github.com/strelov1/freehire/internal/platform/htmltext"
 )
 
 // Sentinel errors mapped to HTTP statuses by the handler.
@@ -123,6 +124,13 @@ func New(repo Repository, minter Minter) *Service {
 // written), and otherwise stores it as a pending submission owned by the given user. A
 // second submission of a URL already pending surfaces ErrDuplicatePending (the repository
 // maps the unique violation).
+//
+// The description is sanitized to the same allowlist moderation.Service.Create uses, before
+// it is ever persisted — a pending or rejected submission is never re-sanitized, and the
+// review UI already renders it with {@html}, so waiting for approval would leave raw HTML in
+// the database (stored XSS). Sanitizing here rather than re-sanitizing is also idempotent:
+// Approve carries this already-clean value into moderation.CreateInput, and
+// htmltext.Sanitize is safe to run twice.
 func (s *Service) Submit(ctx context.Context, submittedBy int64, in moderation.CreateInput) (Submission, error) {
 	if err := in.Validate(); err != nil {
 		return Submission{}, err
@@ -134,6 +142,7 @@ func (s *Service) Submit(ctx context.Context, submittedBy int64, in moderation.C
 	if blocked {
 		return Submission{}, ErrBlockedDomain
 	}
+	in.Description = htmltext.Sanitize(in.Description)
 	return s.repo.Create(ctx, submittedBy, in)
 }
 
