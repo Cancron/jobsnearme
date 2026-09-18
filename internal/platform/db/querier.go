@@ -3349,6 +3349,12 @@ type Querier interface {
 	// the two callers' needs differ, so one query with a caller-supplied cap serves both rather
 	// than duplicating the threshold logic across an uncapped and a capped variant. total is the
 	// FULL count before the cap, same convention as ListUnhealthyBoards.Total.
+	//
+	// No differently-cased-twin guard here any more: board_health's identity is
+	// case-insensitive as of migration 0171 (board_health_identity_key), so two rows for the
+	// same (provider, board, region) that differ only by case cannot exist — the schema
+	// makes the twin this query used to filter out impossible to create, rather than this
+	// query hiding it after the fact.
 	ListChronicBoards(ctx context.Context, arg ListChronicBoardsParams) ([]ListChronicBoardsRow, error)
 	// Postings that have CLOSED since they were announced, so the engine can re-read a page
 	// whose validThrough has moved into the past.
@@ -5141,9 +5147,20 @@ type Querier interface {
 	// Count a failed crawl: bump consecutive_failures, record the error, stamp the run,
 	// and RETURN the new failure count so the caller can compute the cooldown (the backoff
 	// policy lives in Go, not here). The cooldown itself is applied by SetBoardCooldown.
+	//
+	// Conflict target and board = EXCLUDED.board: same reasoning as RecordBoardSuccess above.
 	RecordBoardFailure(ctx context.Context, arg RecordBoardFailureParams) (int32, error)
 	// A successful crawl clears the failure state and stamps freshness. Upsert so a
 	// first-ever crawl creates the row.
+	//
+	// The conflict target is (provider, lower(board), region) — board_health's identity
+	// since migration 0171, matching boards_identity_key on the `boards` catalog itself —
+	// so a board id that changes case at the provider converges onto its EXISTING row
+	// instead of inserting a stale twin. `board = EXCLUDED.board` is what makes that
+	// convergence real: without it the row would keep whichever casing it was first
+	// created under forever, and every later exact-match lookup by the provider's CURRENT
+	// casing (GetBoardCooldown, SetBoardCooldown, DeleteBoardHealth, ClearProviderCooldowns
+	// — all below) would stop finding the row.
 	//
 	// `reached` stamps last_yield_at (migration 0158) and is the caller's answer to a question
 	// last_ingested_count cannot: whether the crawl actually found a posting on this board. The two
