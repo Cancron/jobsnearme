@@ -103,13 +103,13 @@ func (r *QueriesRepository) ListByUser(ctx context.Context, userID int64) ([]Use
 	return out, nil
 }
 
-// MarkApproved marks a pending submission approved. The query is scoped to status='pending',
-// so a concurrent second decision affects no row — surfaced as ErrAlreadyDecided.
-func (r *QueriesRepository) MarkApproved(ctx context.Context, id, reviewerID, jobID int64) (Submission, error) {
-	sub, err := r.q.MarkSubmissionApproved(ctx, db.MarkSubmissionApprovedParams{
+// ClaimForApproval atomically claims a pending submission for approval. The query is
+// scoped to status='pending', so a concurrent second decision (an approve or a reject)
+// affects no row — surfaced as ErrAlreadyDecided.
+func (r *QueriesRepository) ClaimForApproval(ctx context.Context, id, reviewerID int64) (Submission, error) {
+	sub, err := r.q.ClaimSubmissionForApproval(ctx, db.ClaimSubmissionForApprovalParams{
 		ID:         id,
 		ReviewedBy: reviewerID,
-		JobID:      jobID,
 	})
 	if errors.Is(err, pgx.ErrNoRows) {
 		return Submission{}, ErrAlreadyDecided
@@ -120,7 +120,23 @@ func (r *QueriesRepository) MarkApproved(ctx context.Context, id, reviewerID, jo
 	return fromRow(sub), nil
 }
 
-// MarkRejected marks a pending submission rejected (see MarkApproved for the status scope).
+// AttachJob records the minted job on a submission ClaimForApproval already claimed. The
+// query is scoped to status='approved'.
+func (r *QueriesRepository) AttachJob(ctx context.Context, id, jobID int64) (Submission, error) {
+	sub, err := r.q.AttachSubmissionJob(ctx, db.AttachSubmissionJobParams{
+		ID:    id,
+		JobID: jobID,
+	})
+	if errors.Is(err, pgx.ErrNoRows) {
+		return Submission{}, ErrAlreadyDecided
+	}
+	if err != nil {
+		return Submission{}, err
+	}
+	return fromRow(sub), nil
+}
+
+// MarkRejected marks a pending submission rejected (see ClaimForApproval for the status scope).
 func (r *QueriesRepository) MarkRejected(ctx context.Context, id, reviewerID int64, reason string) (Submission, error) {
 	sub, err := r.q.MarkSubmissionRejected(ctx, db.MarkSubmissionRejectedParams{
 		ID:           id,
@@ -230,6 +246,7 @@ func fromRow(row db.JobSubmission) Submission {
 		Status:       row.Status,
 		ReviewReason: row.ReviewReason,
 		ReviewedAt:   pgconv.TimePtr(row.ReviewedAt),
+		JobID:        pgconv.Int8Ptr(row.JobID),
 		CreatedAt:    pgconv.TimePtr(row.CreatedAt),
 
 		Skills:         row.Skills,
