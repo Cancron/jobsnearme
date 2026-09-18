@@ -253,6 +253,7 @@ func TestReseedCV_NoSeed409(t *testing.T) {
 	}
 	app := buildResetApp(h, iss)
 	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reseed", tok, nil)
+	defer resp.Body.Close()
 	if resp.StatusCode != fiber.StatusConflict {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d body = %s, want 409", resp.StatusCode, body)
@@ -557,6 +558,7 @@ func TestReseedCV_CapsAnOvercapBankBucketInsteadOfRefusing(t *testing.T) {
 
 	app := buildResetApp(h, iss)
 	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reseed", tok, nil)
+	defer resp.Body.Close()
 	if resp.StatusCode != fiber.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, body)
@@ -804,6 +806,7 @@ func TestReseedBaseCV_NoSeed409(t *testing.T) {
 	}
 	app := buildResetApp(h, iss)
 	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/base/reseed", tok, nil)
+	defer resp.Body.Close()
 	if resp.StatusCode != fiber.StatusConflict {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d body = %s, want 409", resp.StatusCode, body)
@@ -821,6 +824,7 @@ func TestReseedBaseCV_Unauth401(t *testing.T) {
 	h, iss, _ := newTailorAPI(t)
 	app := buildResetApp(h, iss)
 	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/base/reseed", "", nil)
+	defer resp.Body.Close()
 	if resp.StatusCode != fiber.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
@@ -839,6 +843,7 @@ func TestReseedBaseCV_OtherUserLeavesOwnersBase(t *testing.T) {
 	}
 	app := buildResetApp(h, iss)
 	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/base/reseed", otherTok, nil)
+	defer resp.Body.Close()
 	if resp.StatusCode != fiber.StatusConflict {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d body = %s, want 409 (other has no seed)", resp.StatusCode, body)
