@@ -11,13 +11,14 @@ import (
 	"github.com/strelov1/freehire/internal/dict/skilltag"
 )
 
-// ResetCVFromResume rebuilds a tailored CV's content from the current résumé seed
-// (experience bank + structured extract — the same source first-time tailor uses), keeps
-// the same CV id and agent session, and refreshes the base CV from that same seed so ATS
-// delta and future bootstraps stay aligned. Cookie-only: destructive whole-document replace.
+// ReseedCV rebuilds a tailored CV's content from the current seed (experience bank +
+// structured extract — the same source first-time tailor uses, and the bank first
+// whenever it has rows; see cv_seed.go), keeps the same CV id and agent session, and
+// refreshes the base CV from that same seed so ATS delta and future bootstraps stay
+// aligned. Cookie-only: destructive whole-document replace.
 //
 // Upload does not do this. Upload refreshes the seed source; this is the explicit apply.
-func (h *cvHandlers) ResetCVFromResume(c *fiber.Ctx) error {
+func (h *cvHandlers) ReseedCV(c *fiber.Ctx) error {
 	userID, err := requireUserID(c)
 	if err != nil {
 		return err
@@ -34,7 +35,7 @@ func (h *cvHandlers) ResetCVFromResume(c *fiber.Ctx) error {
 		return mapCVError(err)
 	}
 	if !rec.IsTailored {
-		return fiber.NewError(fiber.StatusConflict, "reset from résumé is only for a tailored CV")
+		return fiber.NewError(fiber.StatusConflict, "reseed is only for a tailored CV")
 	}
 
 	st, ok, err := h.seedSource().Structured(c.Context(), userID)
@@ -46,7 +47,7 @@ func (h *cvHandlers) ResetCVFromResume(c *fiber.Ctx) error {
 		// alone — candidate-owned contacts with no résumé ever uploaded and no bank
 		// rows. This is a destructive whole-document replace of an EXISTING CV, unlike
 		// first-time tailor bootstrap: identity alone is not reason enough to wipe it.
-		return fiber.NewError(fiber.StatusConflict, "add a résumé before resetting from it")
+		return fiber.NewError(fiber.StatusConflict, "add a résumé before reseeding")
 	}
 	seeded := cv.Seed(st)
 
@@ -93,10 +94,10 @@ func (h *cvHandlers) ResetCVFromResume(c *fiber.Ctx) error {
 	return c.JSON(fiber.Map{"data": recordResponse(out)})
 }
 
-// ResetBaseCVFromResume rebuilds the owner's base CV from the current résumé seed
-// (experience bank + structured extract). Cookie-only. Does not touch tailored copies —
-// those stay on History → Reset (or the tailor-workspace refresh prompt).
-func (h *cvHandlers) ResetBaseCVFromResume(c *fiber.Ctx) error {
+// ReseedBaseCV rebuilds the owner's base CV from the current seed (experience bank +
+// structured extract). Cookie-only. Does not touch tailored copies — those stay on
+// History → Reset (or the tailor-workspace refresh prompt).
+func (h *cvHandlers) ReseedBaseCV(c *fiber.Ctx) error {
 	userID, err := requireUserID(c)
 	if err != nil {
 		return err
@@ -106,7 +107,7 @@ func (h *cvHandlers) ResetBaseCVFromResume(c *fiber.Ctx) error {
 		return err
 	}
 	if !ok || !hasSeedBody(st) {
-		return fiber.NewError(fiber.StatusConflict, "add a résumé before resetting from it")
+		return fiber.NewError(fiber.StatusConflict, "add a résumé before reseeding")
 	}
 	if err := h.reseedBaseFromSeed(c, userID, cv.Seed(st)); err != nil {
 		return err

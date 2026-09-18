@@ -2241,29 +2241,29 @@ curl -X POST "https://freehire.me/api/v1/me/cvs/7d1a…/tailor-session" -b cooki
 { "data": { "tailor_cv_id": "7d1a…", "base_cv_id": "0f2c…", "session_id": "s_9f…" } }
 ```
 
-### `POST /me/cvs/base/reset-from-resume`
+### `POST /me/cvs/base/reseed`
 
 **Auth:** Session only
 
-Rebuild your base CV from your résumé.
+Rebuild your base CV from your current seed.
 
-Replaces the base (non-tailored) document from the current résumé seed (experience bank + structured extract). Preserves template and typography. Does not rewrite tailored copies for specific jobs. 409 when there is no usable résumé seed.
+Replaces the base (non-tailored) document from the current seed (experience bank first, your résumé's own extract for what the bank doesn't track). Preserves template and typography. Does not rewrite tailored copies for specific jobs. 409 when there is no usable seed.
 
 ```bash
-curl -X POST "https://freehire.me/api/v1/me/cvs/base/reset-from-resume" -b cookies.txt
+curl -X POST "https://freehire.me/api/v1/me/cvs/base/reseed" -b cookies.txt
 ```
 
 ```json
 { "data": { "id": "0f2c…", "title": "My CV", "template_id": "classic-ats", "document": { … } } }
 ```
 
-### `POST /me/cvs/{id}/reset-from-resume`
+### `POST /me/cvs/{id}/reseed`
 
 **Auth:** Session only
 
-Rebuild this tailored CV from your résumé.
+Rebuild this tailored CV from your current seed.
 
-Replaces the tailored document's content from the current résumé seed (experience bank + structured extract) and refreshes your base CV from the same seed. Keeps the same tailored id and agent session; preserves template and typography on each row. 409 when the CV is not tailored or there is no usable résumé seed. Upload alone does not do this — this is the explicit apply.
+Replaces the tailored document's content from the current seed (experience bank first, your résumé's own extract for what the bank doesn't track) and refreshes your base CV from the same seed. Keeps the same tailored id and agent session; preserves template and typography on each row. 409 when the CV is not tailored or there is no usable seed. Upload alone does not do this — this is the explicit apply.
 
 **Path parameters**
 
@@ -2272,7 +2272,7 @@ Replaces the tailored document's content from the current résumé seed (experie
 | `id` | string (uuid) | yes | The tailored CV id. |
 
 ```bash
-curl -X POST "https://freehire.me/api/v1/me/cvs/7d1a…/reset-from-resume" -b cookies.txt
+curl -X POST "https://freehire.me/api/v1/me/cvs/7d1a…/reseed" -b cookies.txt
 ```
 
 ```json

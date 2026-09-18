@@ -26,8 +26,8 @@ func buildResetApp(h *cvHandlers, iss *auth.Issuer) *fiber.App {
 	saved := auth.RequireAuth(iss, testVersions)
 	keyAuth := auth.RequireAuthOrScopedKey(iss, testVersions, apiKeys{h.queries}, auth.ScopeCV)
 	app.Get("/api/v1/me/cvs/:id", keyAuth, h.GetCV)
-	app.Post("/api/v1/me/cvs/base/reset-from-resume", saved, h.ResetBaseCVFromResume)
-	app.Post("/api/v1/me/cvs/:id/reset-from-resume", saved, h.ResetCVFromResume)
+	app.Post("/api/v1/me/cvs/base/reseed", saved, h.ReseedBaseCV)
+	app.Post("/api/v1/me/cvs/:id/reseed", saved, h.ReseedCV)
 	return app
 }
 
@@ -97,9 +97,9 @@ func newResetFixture(t *testing.T) resetFixture {
 	}
 }
 
-func TestResetCVFromResume_HappyPath(t *testing.T) {
+func TestReseedCV_HappyPath(t *testing.T) {
 	f := newResetFixture(t)
-	path := "/api/v1/me/cvs/" + f.tailored.ID.String() + "/reset-from-resume"
+	path := "/api/v1/me/cvs/" + f.tailored.ID.String() + "/reseed"
 	resp := doCV(t, f.app, fiber.MethodPost, path, f.token, nil)
 	if resp.StatusCode != fiber.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -137,7 +137,7 @@ func TestResetCVFromResume_HappyPath(t *testing.T) {
 	}
 }
 
-func TestResetCVFromResume_CreatesBaseWhenAbsent(t *testing.T) {
+func TestReseedCV_CreatesBaseWhenAbsent(t *testing.T) {
 	h, iss, pool := newTailorAPI(t)
 	userID := seedAccount(t, pool, "nobase@example.com", false)
 	tok, _ := iss.Issue(userID, 1)
@@ -157,7 +157,7 @@ func TestResetCVFromResume_CreatesBaseWhenAbsent(t *testing.T) {
 		t.Fatalf("create tailored: %v", err)
 	}
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reset-from-resume", tok, nil)
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reseed", tok, nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != fiber.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -180,10 +180,10 @@ func TestResetCVFromResume_CreatesBaseWhenAbsent(t *testing.T) {
 	}
 }
 
-// When the user has no base CV yet, reseedBaseFromSeed's create branch (cv_reset.go) must
+// When the user has no base CV yet, reseedBaseFromSeed's create branch (cv_reseed.go) must
 // start the new base from the user's saved appearance defaults — see the
 // add-cv-appearance-defaults change.
-func TestResetCVFromResume_CreatesBaseFromSavedAppearanceDefaults(t *testing.T) {
+func TestReseedCV_CreatesBaseFromSavedAppearanceDefaults(t *testing.T) {
 	h, iss, pool := newTailorAPI(t)
 	userID := seedAccount(t, pool, "nobase-defaults@example.com", false)
 	tok, _ := iss.Issue(userID, 1)
@@ -211,7 +211,7 @@ func TestResetCVFromResume_CreatesBaseFromSavedAppearanceDefaults(t *testing.T) 
 		t.Fatalf("create tailored: %v", err)
 	}
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reset-from-resume", tok, nil)
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reseed", tok, nil)
 	defer resp.Body.Close()
 	if resp.StatusCode != fiber.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -232,16 +232,16 @@ func TestResetCVFromResume_CreatesBaseFromSavedAppearanceDefaults(t *testing.T) 
 	}
 }
 
-func TestResetCVFromResume_BaseTarget409(t *testing.T) {
+func TestReseedCV_BaseTarget409(t *testing.T) {
 	f := newResetFixture(t)
-	path := "/api/v1/me/cvs/" + f.base.ID.String() + "/reset-from-resume"
+	path := "/api/v1/me/cvs/" + f.base.ID.String() + "/reseed"
 	resp := doCV(t, f.app, fiber.MethodPost, path, f.token, nil)
 	if resp.StatusCode != fiber.StatusConflict {
 		t.Fatalf("status = %d, want 409", resp.StatusCode)
 	}
 }
 
-func TestResetCVFromResume_NoSeed409(t *testing.T) {
+func TestReseedCV_NoSeed409(t *testing.T) {
 	h, iss, pool := newTailorAPI(t)
 	userID := seedAccount(t, pool, "noseed@example.com", false)
 	tok, _ := iss.Issue(userID, 1)
@@ -252,7 +252,8 @@ func TestResetCVFromResume_NoSeed409(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reset-from-resume", tok, nil)
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reseed", tok, nil)
+	defer resp.Body.Close()
 	if resp.StatusCode != fiber.StatusConflict {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d body = %s, want 409", resp.StatusCode, body)
@@ -261,7 +262,7 @@ func TestResetCVFromResume_NoSeed409(t *testing.T) {
 
 // Banked experience without a current structured résumé is not a usable seed — reset must
 // refuse rather than blank the tailored header.
-func TestResetCVFromResume_BankOnlySeed409(t *testing.T) {
+func TestReseedCV_BankOnlySeed409(t *testing.T) {
 	h, iss, pool := newTailorAPI(t)
 	userID := seedAccount(t, pool, "bankonly@example.com", false)
 	tok, _ := iss.Issue(userID, 1)
@@ -287,7 +288,7 @@ func TestResetCVFromResume_BankOnlySeed409(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reset-from-resume", tok, nil)
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reseed", tok, nil)
 	if resp.StatusCode != fiber.StatusConflict {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d body = %s, want 409", resp.StatusCode, body)
@@ -309,7 +310,7 @@ func TestResetCVFromResume_BankOnlySeed409(t *testing.T) {
 // rows) is identity-only. StructureForSeed/seedable both treat FullName alone as "usable"
 // for first-time bootstrap, but Reset destructively replaces an EXISTING CV's whole body —
 // identity alone must not be enough to wipe hand-written content.
-func TestResetCVFromResume_IdentityOnlySeed409(t *testing.T) {
+func TestReseedCV_IdentityOnlySeed409(t *testing.T) {
 	h, iss, pool := newTailorAPI(t)
 	userID := seedAccount(t, pool, "identityonly@example.com", false)
 	tok, _ := iss.Issue(userID, 1)
@@ -335,7 +336,7 @@ func TestResetCVFromResume_IdentityOnlySeed409(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reset-from-resume", tok, nil)
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reseed", tok, nil)
 	if resp.StatusCode != fiber.StatusConflict {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d body = %s, want 409", resp.StatusCode, body)
@@ -354,7 +355,7 @@ func TestResetCVFromResume_IdentityOnlySeed409(t *testing.T) {
 	}
 }
 
-func TestResetCVFromResume_ProvisionalContactsPlusBankSucceeds(t *testing.T) {
+func TestReseedCV_ProvisionalContactsPlusBankSucceeds(t *testing.T) {
 	h, iss, pool := newTailorAPI(t)
 	userID := seedAccount(t, pool, "prov-reset@example.com", false)
 	tok, _ := iss.Issue(userID, 1)
@@ -394,7 +395,7 @@ func TestResetCVFromResume_ProvisionalContactsPlusBankSucceeds(t *testing.T) {
 		t.Fatalf("create: %v", err)
 	}
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reset-from-resume", tok, nil)
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reseed", tok, nil)
 	if resp.StatusCode != fiber.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d body = %s, want 200", resp.StatusCode, body)
@@ -442,21 +443,21 @@ func TestResetCVFromResume_ProvisionalContactsPlusBankSucceeds(t *testing.T) {
 	}
 }
 
-func TestResetCVFromResume_OtherOwner404(t *testing.T) {
+func TestReseedCV_OtherOwner404(t *testing.T) {
 	f := newResetFixture(t)
 	otherID := seedAccount(t, f.pool, "other-reset@example.com", false)
 	otherTok, err := f.iss.Issue(otherID, 1)
 	if err != nil {
 		t.Fatalf("issue: %v", err)
 	}
-	path := "/api/v1/me/cvs/" + f.tailored.ID.String() + "/reset-from-resume"
+	path := "/api/v1/me/cvs/" + f.tailored.ID.String() + "/reseed"
 	resp := doCV(t, f.app, fiber.MethodPost, path, otherTok, nil)
 	if resp.StatusCode != fiber.StatusNotFound {
 		t.Fatalf("status = %d, want 404", resp.StatusCode)
 	}
 }
 
-func TestResetCVFromResume_DoesNotChangeProfile(t *testing.T) {
+func TestReseedCV_DoesNotChangeProfile(t *testing.T) {
 	f := newResetFixture(t)
 	ctx := context.Background()
 	if _, err := f.pool.Exec(ctx,
@@ -466,7 +467,7 @@ func TestResetCVFromResume_DoesNotChangeProfile(t *testing.T) {
 		t.Fatalf("seed profile: %v", err)
 	}
 
-	path := "/api/v1/me/cvs/" + f.tailored.ID.String() + "/reset-from-resume"
+	path := "/api/v1/me/cvs/" + f.tailored.ID.String() + "/reseed"
 	resp := doCV(t, f.app, fiber.MethodPost, path, f.token, nil)
 	if resp.StatusCode != fiber.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -484,12 +485,13 @@ func TestResetCVFromResume_DoesNotChangeProfile(t *testing.T) {
 	}
 }
 
-// A bank role with more banked, publishable claims than cv.MaxBullets is exactly the seed
-// CommitDocument used to truncate silently (it sanitizes before diffing, so the refuse
-// guard never saw the overflow). Reset must refuse instead — and because the tailored
-// target now commits before the base refresh, a refusal must leave BOTH untouched rather
-// than a base already rewritten under a request that reports failure.
-func TestResetCVFromResume_RefusesWhenTheBankSeedExceedsTheBulletCap(t *testing.T) {
+// A bank employment growing past the bullet cap over years of real use used to dead-end
+// this route forever: the seed built from it was already over cv.MaxBullets, and
+// CommitDocument's cap guard refused the whole write on every retry, with no user-facing
+// recovery. cv.Seed now caps every Bullets list at MaxBullets before a Document is ever
+// built (internal/candidate/cv/seed.go), keeping the MOST RECENTLY banked achievements —
+// so this reseed must succeed, not refuse, and must refresh the base CV too.
+func TestReseedCV_CapsAnOvercapBankBucketInsteadOfRefusing(t *testing.T) {
 	prevMax := cv.MaxBullets
 	cv.SetMaxBullets(20)
 	t.Cleanup(func() { cv.SetMaxBullets(prevMax) })
@@ -502,6 +504,18 @@ func TestResetCVFromResume_RefusesWhenTheBankSeedExceedsTheBulletCap(t *testing.
 	tok, _ := iss.Issue(userID, 1)
 	ctx := context.Background()
 
+	// haveSource (cv_seed.go's bankedSeeder.Structured) requires the résumé's own
+	// structure, independent of the bank — TestReseedCV_BankOnlySeed409 pins that a bank
+	// alone is not "usable". Identity fields only; work history below comes from the bank.
+	blob, _ := json.Marshal(resumeextract.Structured{FullName: "Neon Candidate"})
+	uploadedAt := time.Now().Add(-time.Hour).Truncate(time.Microsecond)
+	if _, err := pool.Exec(ctx,
+		`UPDATE users SET resume_object_key = 'k', resume_uploaded_at = $2,
+		 resume_structured = $3, resume_structured_uploaded_at = $2 WHERE id = $1`,
+		userID, uploadedAt, blob); err != nil {
+		t.Fatalf("seed structure: %v", err)
+	}
+
 	emp, err := bank.CreateEmployment(ctx, userID, experience.Employment{
 		Kind: experience.KindJob, Company: "Neon", Role: "Staff Engineer",
 		Start: &perioddate.PeriodDate{Year: 2018}, End: &perioddate.PeriodDate{Year: 2024},
@@ -509,6 +523,8 @@ func TestResetCVFromResume_RefusesWhenTheBankSeedExceedsTheBulletCap(t *testing.
 	if err != nil {
 		t.Fatalf("CreateEmployment: %v", err)
 	}
+	// Oldest first, matching the store's own created_at ordering — achievement 1 is the
+	// oldest and must be the one dropped once the bucket is capped.
 	for i := 0; i < cv.MaxBullets+1; i++ {
 		if _, err := bank.AddAtom(ctx, userID, experience.Atom{
 			EmploymentID: &emp.ID,
@@ -537,31 +553,52 @@ func TestResetCVFromResume_RefusesWhenTheBankSeedExceedsTheBulletCap(t *testing.
 	}
 
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reset-from-resume", tok, nil)
-	if resp.StatusCode != fiber.StatusConflict {
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reseed", tok, nil)
+	defer resp.Body.Close()
+	if resp.StatusCode != fiber.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
-		t.Fatalf("status = %d, want 409: %s", resp.StatusCode, body)
+		t.Fatalf("status = %d, want 200: %s", resp.StatusCode, body)
 	}
 
 	gotTailored, err := store.Get(ctx, tailored.ID, userID)
 	if err != nil {
 		t.Fatalf("get tailored: %v", err)
 	}
-	if gotTailored.Document.Summary != "old tailored summary" {
-		t.Fatalf("tailored summary = %q, want untouched by a refused reset", gotTailored.Document.Summary)
+	if len(gotTailored.Document.Experience) != 1 {
+		t.Fatalf("experience = %+v, want the one banked employment", gotTailored.Document.Experience)
 	}
+	bullets := gotTailored.Document.Experience[0].Bullets
+	if len(bullets) != cv.MaxBullets {
+		t.Fatalf("bullets = %d, want capped at %d", len(bullets), cv.MaxBullets)
+	}
+	if bullets[0] != "Banked achievement 2" {
+		t.Errorf("first surviving bullet = %q, want the oldest one dropped", bullets[0])
+	}
+	last := fmt.Sprintf("Banked achievement %d", cv.MaxBullets+1)
+	if got := bullets[len(bullets)-1]; got != last {
+		t.Errorf("last surviving bullet = %q, want %q — the most recently banked", got, last)
+	}
+
+	// ReseedCV refreshes the base from the same seed after the tailored target commits —
+	// it must carry the same capped, most-recent bullets, not the pre-reseed "Old Base".
 	gotBase, ok, err := store.BaseCV(ctx, userID)
 	if err != nil || !ok {
 		t.Fatalf("BaseCV: ok=%v err=%v", ok, err)
 	}
-	if gotBase.ID != base.ID || gotBase.Document.Summary != "old base summary" {
-		t.Fatalf("base = %+v, want untouched — the target failed before the base refresh ran", gotBase.Document)
+	if gotBase.ID != base.ID {
+		t.Fatalf("base id = %s, want %s (refreshed in place, not replaced)", gotBase.ID, base.ID)
+	}
+	if len(gotBase.Document.Experience) != 1 || len(gotBase.Document.Experience[0].Bullets) != cv.MaxBullets {
+		t.Fatalf("base experience = %+v, want one row capped at %d", gotBase.Document.Experience, cv.MaxBullets)
+	}
+	if got := gotBase.Document.Experience[0].Bullets[0]; got != "Banked achievement 2" {
+		t.Errorf("base's first surviving bullet = %q, want the oldest one dropped", got)
 	}
 }
 
-// TestResetCVFromResume_AlignsSkillSurfaces: resetting a tailored copy whose seed says IaC
+// TestReseedCV_AlignsSkillSurfaces: resetting a tailored copy whose seed says IaC
 // stores the vacancy's preferred form on the tailored document, while the base keeps IaC.
-func TestResetCVFromResume_AlignsSkillSurfaces(t *testing.T) {
+func TestReseedCV_AlignsSkillSurfaces(t *testing.T) {
 	h, iss, pool := newTailorAPI(t)
 	userID := seedAccount(t, pool, "reset-align@example.com", false)
 	tok, err := iss.Issue(userID, 1)
@@ -601,7 +638,7 @@ func TestResetCVFromResume_AlignsSkillSurfaces(t *testing.T) {
 	}
 
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reset-from-resume", tok, nil)
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reseed", tok, nil)
 	if resp.StatusCode != fiber.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
@@ -629,9 +666,9 @@ func TestResetCVFromResume_AlignsSkillSurfaces(t *testing.T) {
 	}
 }
 
-// TestResetCVFromResume_CurrentExtractAppliesSkillsAndSummary: a current stamp with
+// TestReseedCV_CurrentExtractAppliesSkillsAndSummary: a current stamp with
 // summary and skills must land them on reset (seed wins over whatever was on the page).
-func TestResetCVFromResume_CurrentExtractAppliesSkillsAndSummary(t *testing.T) {
+func TestReseedCV_CurrentExtractAppliesSkillsAndSummary(t *testing.T) {
 	h, iss, pool := newTailorAPI(t)
 	userID := seedAccount(t, pool, "reset-current@example.com", false)
 	tok, _ := iss.Issue(userID, 1)
@@ -669,7 +706,7 @@ func TestResetCVFromResume_CurrentExtractAppliesSkillsAndSummary(t *testing.T) {
 	}
 
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reset-from-resume", tok, nil)
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/"+tailored.ID.String()+"/reseed", tok, nil)
 	if resp.StatusCode != fiber.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
@@ -698,7 +735,7 @@ func TestResetCVFromResume_CurrentExtractAppliesSkillsAndSummary(t *testing.T) {
 	}
 }
 
-func TestResetBaseCVFromResume_HappyPath(t *testing.T) {
+func TestReseedBaseCV_HappyPath(t *testing.T) {
 	h, iss, pool := newTailorAPI(t)
 	userID := seedAccount(t, pool, "base-reset@example.com", false)
 	tok, _ := iss.Issue(userID, 1)
@@ -738,7 +775,7 @@ func TestResetBaseCVFromResume_HappyPath(t *testing.T) {
 	}
 
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/base/reset-from-resume", tok, nil)
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/base/reseed", tok, nil)
 	if resp.StatusCode != fiber.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d, body = %s", resp.StatusCode, body)
@@ -769,7 +806,7 @@ func TestResetBaseCVFromResume_HappyPath(t *testing.T) {
 	}
 }
 
-func TestResetBaseCVFromResume_NoSeed409(t *testing.T) {
+func TestReseedBaseCV_NoSeed409(t *testing.T) {
 	h, iss, pool := newTailorAPI(t)
 	userID := seedAccount(t, pool, "base-noseed@example.com", false)
 	tok, _ := iss.Issue(userID, 1)
@@ -780,7 +817,8 @@ func TestResetBaseCVFromResume_NoSeed409(t *testing.T) {
 		t.Fatalf("create base: %v", err)
 	}
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/base/reset-from-resume", tok, nil)
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/base/reseed", tok, nil)
+	defer resp.Body.Close()
 	if resp.StatusCode != fiber.StatusConflict {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d body = %s, want 409", resp.StatusCode, body)
@@ -794,16 +832,17 @@ func TestResetBaseCVFromResume_NoSeed409(t *testing.T) {
 	}
 }
 
-func TestResetBaseCVFromResume_Unauth401(t *testing.T) {
+func TestReseedBaseCV_Unauth401(t *testing.T) {
 	h, iss, _ := newTailorAPI(t)
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/base/reset-from-resume", "", nil)
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/base/reseed", "", nil)
+	defer resp.Body.Close()
 	if resp.StatusCode != fiber.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401", resp.StatusCode)
 	}
 }
 
-func TestResetBaseCVFromResume_OtherUserLeavesOwnersBase(t *testing.T) {
+func TestReseedBaseCV_OtherUserLeavesOwnersBase(t *testing.T) {
 	h, iss, pool := newTailorAPI(t)
 	owner := seedAccount(t, pool, "base-owner@example.com", false)
 	other := seedAccount(t, pool, "base-other@example.com", false)
@@ -815,7 +854,8 @@ func TestResetBaseCVFromResume_OtherUserLeavesOwnersBase(t *testing.T) {
 		t.Fatalf("create owner base: %v", err)
 	}
 	app := buildResetApp(h, iss)
-	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/base/reset-from-resume", otherTok, nil)
+	resp := doCV(t, app, fiber.MethodPost, "/api/v1/me/cvs/base/reseed", otherTok, nil)
+	defer resp.Body.Close()
 	if resp.StatusCode != fiber.StatusConflict {
 		body, _ := io.ReadAll(resp.Body)
 		t.Fatalf("status = %d body = %s, want 409 (other has no seed)", resp.StatusCode, body)
