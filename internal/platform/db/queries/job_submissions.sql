@@ -28,7 +28,10 @@ SELECT * FROM job_submissions WHERE id = $1;
 -- email so the moderator can judge provenance. Capped at 500 as a runaway-growth
 -- guard — far above any plausible backlog; a queue that deep needs bulk triage,
 -- not a longer page.
-SELECT s.*, u.email AS submitter_email
+-- sqlc.embed keeps the submission row as one db.JobSubmission instead of a flat row type
+-- unrelated to it, so the adapter maps it once (fromRow) rather than re-assembling it here
+-- (see mentorship.sql's ListBookingsByMentor for the same shape).
+SELECT sqlc.embed(s), u.email AS submitter_email
 FROM job_submissions s
 JOIN users u ON u.id = s.submitted_by
 WHERE s.status = 'pending'
@@ -39,7 +42,8 @@ LIMIT 500;
 -- "My submissions": one user's submissions, newest first, whatever their status.
 -- LEFT JOIN the minted job (present only once approved) to surface its public_slug,
 -- so the UI can link an approved submission straight to its live vacancy page.
-SELECT s.*, j.public_slug AS job_slug
+-- sqlc.embed, see ListPendingSubmissions above.
+SELECT sqlc.embed(s), j.public_slug AS job_slug
 FROM job_submissions s
 LEFT JOIN jobs j ON j.id = s.job_id
 WHERE s.submitted_by = $1

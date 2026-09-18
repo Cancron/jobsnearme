@@ -248,33 +248,7 @@ func fromRow(row db.JobSubmission) Submission {
 // fromPendingRow maps a moderator-queue row to PendingSubmission, adding the submitter email.
 func fromPendingRow(row db.ListPendingSubmissionsRow) PendingSubmission {
 	return PendingSubmission{
-		Submission: Submission{
-			ID:           row.ID,
-			SubmittedBy:  row.SubmittedBy,
-			URL:          row.URL,
-			Source:       row.Source,
-			Title:        row.Title,
-			Company:      row.Company,
-			Location:     row.Location,
-			Remote:       row.Remote,
-			Description:  row.Description,
-			PostedAt:     pgconv.TimePtr(row.PostedAt),
-			Status:       row.Status,
-			ReviewReason: row.ReviewReason,
-			ReviewedAt:   pgconv.TimePtr(row.ReviewedAt),
-			CreatedAt:    pgconv.TimePtr(row.CreatedAt),
-
-			Skills:         row.Skills,
-			Regions:        row.Regions,
-			Cities:         row.Cities,
-			WorkMode:       row.WorkMode,
-			EmploymentType: row.EmploymentType,
-			Seniority:      row.Seniority,
-			SalaryMin:      pgconv.IntPtr(row.SalaryMin),
-			SalaryMax:      pgconv.IntPtr(row.SalaryMax),
-			SalaryCurrency: row.SalaryCurrency,
-			SalaryPeriod:   row.SalaryPeriod,
-		},
+		Submission:     fromRow(row.JobSubmission),
 		SubmitterEmail: row.SubmitterEmail,
 	}
 }
@@ -283,33 +257,7 @@ func fromPendingRow(row db.ListPendingSubmissionsRow) PendingSubmission {
 // (empty when the submission has not been approved into a live vacancy).
 func fromUserRow(row db.ListSubmissionsByUserRow) UserSubmission {
 	return UserSubmission{
-		Submission: Submission{
-			ID:           row.ID,
-			SubmittedBy:  row.SubmittedBy,
-			URL:          row.URL,
-			Source:       row.Source,
-			Title:        row.Title,
-			Company:      row.Company,
-			Location:     row.Location,
-			Remote:       row.Remote,
-			Description:  row.Description,
-			PostedAt:     pgconv.TimePtr(row.PostedAt),
-			Status:       row.Status,
-			ReviewReason: row.ReviewReason,
-			ReviewedAt:   pgconv.TimePtr(row.ReviewedAt),
-			CreatedAt:    pgconv.TimePtr(row.CreatedAt),
-
-			Skills:         row.Skills,
-			Regions:        row.Regions,
-			Cities:         row.Cities,
-			WorkMode:       row.WorkMode,
-			EmploymentType: row.EmploymentType,
-			Seniority:      row.Seniority,
-			SalaryMin:      pgconv.IntPtr(row.SalaryMin),
-			SalaryMax:      pgconv.IntPtr(row.SalaryMax),
-			SalaryCurrency: row.SalaryCurrency,
-			SalaryPeriod:   row.SalaryPeriod,
-		},
-		JobSlug: row.JobSlug.String,
+		Submission: fromRow(row.JobSubmission),
+		JobSlug:    row.JobSlug.String,
 	}
 }
