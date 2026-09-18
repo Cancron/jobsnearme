@@ -284,7 +284,11 @@ func TestSetBoardCooldownGuardsOnConsecutiveFailures(t *testing.T) {
 		t.Fatalf("seed failure: %v", err)
 	}
 
-	staleCooldown := pgtype.Timestamptz{Time: time.Now().Add(time.Hour), Valid: true}
+	// Truncated to microseconds: that is all timestamptz stores, so an untruncated
+	// nanosecond-precision time.Now() round-trips through Postgres with its last digits
+	// rounded away, and a direct comparison against the pre-truncation value fails even
+	// though both name the same cooldown.
+	staleCooldown := pgtype.Timestamptz{Time: time.Now().Add(time.Hour).Truncate(time.Microsecond), Valid: true}
 	rows, err := q.SetBoardCooldown(ctx, SetBoardCooldownParams{
 		Provider: "greenhouse", Board: "acme", Region: "",
 		CooldownUntil:       staleCooldown,
@@ -302,7 +306,7 @@ func TestSetBoardCooldownGuardsOnConsecutiveFailures(t *testing.T) {
 		t.Fatalf("cooldown_until = %v, want still NULL — a mismatched guard must write nothing", until)
 	}
 
-	freshCooldown := pgtype.Timestamptz{Time: time.Now().Add(2 * time.Hour), Valid: true}
+	freshCooldown := pgtype.Timestamptz{Time: time.Now().Add(2 * time.Hour).Truncate(time.Microsecond), Valid: true}
 	rows, err = q.SetBoardCooldown(ctx, SetBoardCooldownParams{
 		Provider: "greenhouse", Board: "acme", Region: "",
 		CooldownUntil:       freshCooldown,
