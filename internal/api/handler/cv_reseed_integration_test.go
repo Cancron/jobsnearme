@@ -180,7 +180,7 @@ func TestReseedCV_CreatesBaseWhenAbsent(t *testing.T) {
 	}
 }
 
-// When the user has no base CV yet, reseedBaseFromSeed's create branch (cv_reset.go) must
+// When the user has no base CV yet, reseedBaseFromSeed's create branch (cv_reseed.go) must
 // start the new base from the user's saved appearance defaults — see the
 // add-cv-appearance-defaults change.
 func TestReseedCV_CreatesBaseFromSavedAppearanceDefaults(t *testing.T) {

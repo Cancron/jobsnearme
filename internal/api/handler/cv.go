@@ -393,7 +393,7 @@ func (h *cvHandlers) CreateCV(c *fiber.Ctx) error {
 		// A read that failed is not a candidate with nothing to seed from. Collapsing the
 		// two answered 201 with an empty skeleton for someone whose CV we hold, and the
 		// only way back is to notice and start again. Every other caller of this seed
-		// propagates (cv_reset.go).
+		// propagates (cv_reseed.go).
 		st, ok, err := h.seedSource().Structured(c.Context(), userID)
 		if err != nil {
 			return err

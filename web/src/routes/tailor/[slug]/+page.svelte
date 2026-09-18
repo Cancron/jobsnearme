@@ -777,7 +777,7 @@
 
 <ConfirmDialog
   bind:open={confirmResetOpen}
-  title="Reset this tailored CV from your current uploaded résumé?"
+  title="Rebuild this tailored CV from your current seed?"
   description="Your template and typography stay; content edits can be undone from History."
   confirmLabel="Reset"
   onConfirm={applyReseed}

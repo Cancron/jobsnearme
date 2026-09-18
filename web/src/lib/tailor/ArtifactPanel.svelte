@@ -84,7 +84,8 @@
      *  first, and the re-read that follows. */
     onUndoRevision: (revision: RevisionView) => Promise<void>;
     onUndoRevisionRun: (batchId: string) => Promise<void>;
-    /** Rebuild this tailored CV from the current résumé seed. Page owns confirm + flush. */
+    /** Rebuild this tailored CV from the current seed — the experience bank first, the
+     *  résumé's own extract only for what the bank doesn't track. Page owns confirm + flush. */
     onReseed?: () => Promise<void>;
     /** True while a reset round-trip (or a turn) is in flight — disables the control. */
     resetBusy?: boolean;
@@ -224,9 +225,10 @@
         {#if onReseed}
           <div class="border-b border-border px-4 py-3">
             <p class="text-xs leading-snug text-muted-foreground">
-              Replace this CV’s content from your current uploaded résumé / seed (and refresh
-              your base CV). Template and typography stay; this is not “undo last agent edit”
-              alone — History undo covers that. Edits are undoable from the history below.
+              Replace this CV’s content from your current seed (experience bank and résumé,
+              and refresh your base CV too). Template and typography stay; this is not “undo
+              last agent edit” alone — History undo covers that. Edits are undoable from the
+              history below.
             </p>
             <button
               type="button"
