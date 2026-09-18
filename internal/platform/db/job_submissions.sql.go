@@ -11,6 +11,113 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
+const attachSubmissionJob = `-- name: AttachSubmissionJob :one
+UPDATE job_submissions
+SET job_id = $1::bigint
+WHERE id = $2 AND status = 'approved'
+RETURNING id, submitted_by, url, source, title, company, location, remote, description, posted_at, status, review_reason, reviewed_by, reviewed_at, job_id, created_at, skills, regions, cities, work_mode, salary_min, salary_max, salary_currency, salary_period, employment_type, seniority
+`
+
+type AttachSubmissionJobParams struct {
+	JobID int64 `json:"job_id"`
+	ID    int64 `json:"id"`
+}
+
+// Records the minted job on a submission ClaimSubmissionForApproval already claimed.
+// Scoped to status='approved', not 'pending' — by this point the claim has already moved
+// it there, and the guard exists so this never resurrects a submission some other path
+// moved on (in practice unreachable, since only Approve's own claim reaches this status).
+func (q *Queries) AttachSubmissionJob(ctx context.Context, arg AttachSubmissionJobParams) (JobSubmission, error) {
+	row := q.db.QueryRow(ctx, attachSubmissionJob, arg.JobID, arg.ID)
+	var i JobSubmission
+	err := row.Scan(
+		&i.ID,
+		&i.SubmittedBy,
+		&i.URL,
+		&i.Source,
+		&i.Title,
+		&i.Company,
+		&i.Location,
+		&i.Remote,
+		&i.Description,
+		&i.PostedAt,
+		&i.Status,
+		&i.ReviewReason,
+		&i.ReviewedBy,
+		&i.ReviewedAt,
+		&i.JobID,
+		&i.CreatedAt,
+		&i.Skills,
+		&i.Regions,
+		&i.Cities,
+		&i.WorkMode,
+		&i.SalaryMin,
+		&i.SalaryMax,
+		&i.SalaryCurrency,
+		&i.SalaryPeriod,
+		&i.EmploymentType,
+		&i.Seniority,
+	)
+	return i, err
+}
+
+const claimSubmissionForApproval = `-- name: ClaimSubmissionForApproval :one
+UPDATE job_submissions
+SET status      = 'approved',
+    reviewed_by = $1::bigint,
+    reviewed_at = now()
+WHERE id = $2 AND status = 'pending'
+RETURNING id, submitted_by, url, source, title, company, location, remote, description, posted_at, status, review_reason, reviewed_by, reviewed_at, job_id, created_at, skills, regions, cities, work_mode, salary_min, salary_max, salary_currency, salary_period, employment_type, seniority
+`
+
+type ClaimSubmissionForApprovalParams struct {
+	ReviewedBy int64 `json:"reviewed_by"`
+	ID         int64 `json:"id"`
+}
+
+// Claim-first half of approval: atomically flips a pending submission to 'approved' and
+// records the reviewing moderator, leaving job_id NULL until AttachSubmissionJob records
+// the mint. Scoped to status='pending', so this is the guarded transition a concurrent
+// Reject on the same row always loses (whichever call flips the status first wins; the
+// other affects 0 rows, mapped to ErrAlreadyDecided by the service). Running this BEFORE
+// the mint — rather than marking approved only after, as the single MarkSubmissionApproved
+// update used to — closes the race where a concurrent Reject could flip the status between
+// the mint and the mark: the job would exist live while the submission stayed 'rejected'
+// with no job_id pointing at it.
+func (q *Queries) ClaimSubmissionForApproval(ctx context.Context, arg ClaimSubmissionForApprovalParams) (JobSubmission, error) {
+	row := q.db.QueryRow(ctx, claimSubmissionForApproval, arg.ReviewedBy, arg.ID)
+	var i JobSubmission
+	err := row.Scan(
+		&i.ID,
+		&i.SubmittedBy,
+		&i.URL,
+		&i.Source,
+		&i.Title,
+		&i.Company,
+		&i.Location,
+		&i.Remote,
+		&i.Description,
+		&i.PostedAt,
+		&i.Status,
+		&i.ReviewReason,
+		&i.ReviewedBy,
+		&i.ReviewedAt,
+		&i.JobID,
+		&i.CreatedAt,
+		&i.Skills,
+		&i.Regions,
+		&i.Cities,
+		&i.WorkMode,
+		&i.SalaryMin,
+		&i.SalaryMax,
+		&i.SalaryCurrency,
+		&i.SalaryPeriod,
+		&i.EmploymentType,
+		&i.Seniority,
+	)
+	return i, err
+}
+
 const createSubmission = `-- name: CreateSubmission :one
 INSERT INTO job_submissions (
     submitted_by, url, source, title, company, location, remote, description, posted_at,
@@ -361,59 +468,6 @@ func (q *Queries) ListSubmissionsByUser(ctx context.Context, submittedBy int64) 
 	return items, nil
 }
 
-const markSubmissionApproved = `-- name: MarkSubmissionApproved :one
-UPDATE job_submissions
-SET status      = 'approved',
-    reviewed_by = $1::bigint,
-    reviewed_at = now(),
-    job_id      = $2::bigint
-WHERE id = $3 AND status = 'pending'
-RETURNING id, submitted_by, url, source, title, company, location, remote, description, posted_at, status, review_reason, reviewed_by, reviewed_at, job_id, created_at, skills, regions, cities, work_mode, salary_min, salary_max, salary_currency, salary_period, employment_type, seniority
-`
-
-type MarkSubmissionApprovedParams struct {
-	ReviewedBy int64 `json:"reviewed_by"`
-	JobID      int64 `json:"job_id"`
-	ID         int64 `json:"id"`
-}
-
-// Mark a pending submission approved, recording the deciding moderator and the minted job.
-// Scoped to status='pending' so a concurrent second decision affects no row (the service
-// maps 0 rows to ErrAlreadyDecided). The job is minted by the service before this runs.
-func (q *Queries) MarkSubmissionApproved(ctx context.Context, arg MarkSubmissionApprovedParams) (JobSubmission, error) {
-	row := q.db.QueryRow(ctx, markSubmissionApproved, arg.ReviewedBy, arg.JobID, arg.ID)
-	var i JobSubmission
-	err := row.Scan(
-		&i.ID,
-		&i.SubmittedBy,
-		&i.URL,
-		&i.Source,
-		&i.Title,
-		&i.Company,
-		&i.Location,
-		&i.Remote,
-		&i.Description,
-		&i.PostedAt,
-		&i.Status,
-		&i.ReviewReason,
-		&i.ReviewedBy,
-		&i.ReviewedAt,
-		&i.JobID,
-		&i.CreatedAt,
-		&i.Skills,
-		&i.Regions,
-		&i.Cities,
-		&i.WorkMode,
-		&i.SalaryMin,
-		&i.SalaryMax,
-		&i.SalaryCurrency,
-		&i.SalaryPeriod,
-		&i.EmploymentType,
-		&i.Seniority,
-	)
-	return i, err
-}
-
 const markSubmissionRejected = `-- name: MarkSubmissionRejected :one
 UPDATE job_submissions
 SET status        = 'rejected',
@@ -431,7 +485,7 @@ type MarkSubmissionRejectedParams struct {
 }
 
 // Mark a pending submission rejected with an optional reason, recording the deciding
-// moderator. Scoped to status='pending' (see MarkSubmissionApproved). No job is created.
+// moderator. Scoped to status='pending' (see ClaimSubmissionForApproval). No job is created.
 func (q *Queries) MarkSubmissionRejected(ctx context.Context, arg MarkSubmissionRejectedParams) (JobSubmission, error) {
 	row := q.db.QueryRow(ctx, markSubmissionRejected, arg.ReviewedBy, arg.ReviewReason, arg.ID)
 	var i JobSubmission

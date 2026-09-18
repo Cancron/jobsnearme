@@ -152,6 +152,11 @@ type Querier interface {
 	// reviewed" apart from "not found" before ever reaching this statement, so zero rows here
 	// would only mean a race with a concurrent decision on the same entry.
 	ApproveAutoApplyReview(ctx context.Context, id int64) (int64, error)
+	// Records the minted job on a submission ClaimSubmissionForApproval already claimed.
+	// Scoped to status='approved', not 'pending' — by this point the claim has already moved
+	// it there, and the guard exists so this never resurrects a submission some other path
+	// moved on (in practice unreachable, since only Approve's own claim reaches this status).
+	AttachSubmissionJob(ctx context.Context, arg AttachSubmissionJobParams) (JobSubmission, error)
 	// Record that this account arrived through that account's link.
 	//
 	// ON CONFLICT DO NOTHING on the invitee, so a second attribution of the same account writes
@@ -574,6 +579,16 @@ type Querier interface {
 	// join is over just the claimed batch (batch_size rows), not the whole claimable set —
 	// cheap, unlike the ordering join this replaces above.
 	ClaimSemanticBatch(ctx context.Context, arg ClaimSemanticBatchParams) ([]ClaimSemanticBatchRow, error)
+	// Claim-first half of approval: atomically flips a pending submission to 'approved' and
+	// records the reviewing moderator, leaving job_id NULL until AttachSubmissionJob records
+	// the mint. Scoped to status='pending', so this is the guarded transition a concurrent
+	// Reject on the same row always loses (whichever call flips the status first wins; the
+	// other affects 0 rows, mapped to ErrAlreadyDecided by the service). Running this BEFORE
+	// the mint — rather than marking approved only after, as the single MarkSubmissionApproved
+	// update used to — closes the race where a concurrent Reject could flip the status between
+	// the mint and the mark: the job would exist live while the submission stayed 'rejected'
+	// with no job_id pointing at it.
+	ClaimSubmissionForApproval(ctx context.Context, arg ClaimSubmissionForApprovalParams) (JobSubmission, error)
 	// Lease pending, live matches for active subscriptions by stamping claimed_at,
 	// AT MOST per_subscription of them per subscription, so one busy subscription cannot
 	// starve the rest. FOR UPDATE OF the match rows with SKIP LOCKED lets overlapping passes
@@ -4633,12 +4648,8 @@ type Querier interface {
 	// concurrent second decision affects no row (the service maps 0 rows to ErrAlreadyDecided).
 	// The optional job close is a separate write (CloseJobByID).
 	MarkReportResolved(ctx context.Context, arg MarkReportResolvedParams) (JobReport, error)
-	// Mark a pending submission approved, recording the deciding moderator and the minted job.
-	// Scoped to status='pending' so a concurrent second decision affects no row (the service
-	// maps 0 rows to ErrAlreadyDecided). The job is minted by the service before this runs.
-	MarkSubmissionApproved(ctx context.Context, arg MarkSubmissionApprovedParams) (JobSubmission, error)
 	// Mark a pending submission rejected with an optional reason, recording the deciding
-	// moderator. Scoped to status='pending' (see MarkSubmissionApproved). No job is created.
+	// moderator. Scoped to status='pending' (see ClaimSubmissionForApproval). No job is created.
 	MarkSubmissionRejected(ctx context.Context, arg MarkSubmissionRejectedParams) (JobSubmission, error)
 	// Bulk-reject every given id still pending, recording the same moderator and reason on
 	// each — the sibling half of RejectAndBlockHost. Scoped to status='pending' like the

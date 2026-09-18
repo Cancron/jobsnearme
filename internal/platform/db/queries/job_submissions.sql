@@ -45,21 +45,36 @@ LEFT JOIN jobs j ON j.id = s.job_id
 WHERE s.submitted_by = $1
 ORDER BY s.created_at DESC;
 
--- name: MarkSubmissionApproved :one
--- Mark a pending submission approved, recording the deciding moderator and the minted job.
--- Scoped to status='pending' so a concurrent second decision affects no row (the service
--- maps 0 rows to ErrAlreadyDecided). The job is minted by the service before this runs.
+-- name: ClaimSubmissionForApproval :one
+-- Claim-first half of approval: atomically flips a pending submission to 'approved' and
+-- records the reviewing moderator, leaving job_id NULL until AttachSubmissionJob records
+-- the mint. Scoped to status='pending', so this is the guarded transition a concurrent
+-- Reject on the same row always loses (whichever call flips the status first wins; the
+-- other affects 0 rows, mapped to ErrAlreadyDecided by the service). Running this BEFORE
+-- the mint — rather than marking approved only after, as the single MarkSubmissionApproved
+-- update used to — closes the race where a concurrent Reject could flip the status between
+-- the mint and the mark: the job would exist live while the submission stayed 'rejected'
+-- with no job_id pointing at it.
 UPDATE job_submissions
 SET status      = 'approved',
     reviewed_by = sqlc.arg(reviewed_by)::bigint,
-    reviewed_at = now(),
-    job_id      = sqlc.arg(job_id)::bigint
+    reviewed_at = now()
 WHERE id = sqlc.arg(id) AND status = 'pending'
+RETURNING *;
+
+-- name: AttachSubmissionJob :one
+-- Records the minted job on a submission ClaimSubmissionForApproval already claimed.
+-- Scoped to status='approved', not 'pending' — by this point the claim has already moved
+-- it there, and the guard exists so this never resurrects a submission some other path
+-- moved on (in practice unreachable, since only Approve's own claim reaches this status).
+UPDATE job_submissions
+SET job_id = sqlc.arg(job_id)::bigint
+WHERE id = sqlc.arg(id) AND status = 'approved'
 RETURNING *;
 
 -- name: MarkSubmissionRejected :one
 -- Mark a pending submission rejected with an optional reason, recording the deciding
--- moderator. Scoped to status='pending' (see MarkSubmissionApproved). No job is created.
+-- moderator. Scoped to status='pending' (see ClaimSubmissionForApproval). No job is created.
 UPDATE job_submissions
 SET status        = 'rejected',
     reviewed_by   = sqlc.arg(reviewed_by)::bigint,
