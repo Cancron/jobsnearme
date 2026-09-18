@@ -3636,30 +3636,31 @@ data: {"type":"result","stop_reason":"completed"}
       },
       {
         method: 'POST',
-        path: '/me/cvs/base/reset-from-resume',
+        path: '/me/cvs/base/reseed',
         auth: 'cookie',
-        summary: 'Rebuild your base CV from your résumé.',
+        summary: 'Rebuild your base CV from your current seed.',
         description:
-          'Replaces the base (non-tailored) document from the current résumé seed ' +
-          '(experience bank + structured extract). Preserves template and typography. ' +
-          'Does not rewrite tailored copies for specific jobs. 409 when there is no ' +
-          'usable résumé seed.',
-        curl: `curl -X POST "${BASE_URL}/me/cvs/base/reset-from-resume" -b cookies.txt`,
+          'Replaces the base (non-tailored) document from the current seed ' +
+          '(experience bank first, your résumé\'s own extract for what the bank doesn\'t ' +
+          'track). Preserves template and typography. Does not rewrite tailored copies ' +
+          'for specific jobs. 409 when there is no usable seed.',
+        curl: `curl -X POST "${BASE_URL}/me/cvs/base/reseed" -b cookies.txt`,
         responseExample: `{ "data": { "id": "0f2c…", "title": "My CV", "template_id": "classic-ats", "document": { … } } }`,
       },
       {
         method: 'POST',
-        path: '/me/cvs/{id}/reset-from-resume',
+        path: '/me/cvs/{id}/reseed',
         auth: 'cookie',
-        summary: 'Rebuild this tailored CV from your résumé.',
+        summary: 'Rebuild this tailored CV from your current seed.',
         description:
-          'Replaces the tailored document\'s content from the current résumé seed ' +
-          '(experience bank + structured extract) and refreshes your base CV from the ' +
-          'same seed. Keeps the same tailored id and agent session; preserves template ' +
-          'and typography on each row. 409 when the CV is not tailored or there is no ' +
-          'usable résumé seed. Upload alone does not do this — this is the explicit apply.',
+          'Replaces the tailored document\'s content from the current seed ' +
+          '(experience bank first, your résumé\'s own extract for what the bank doesn\'t ' +
+          'track) and refreshes your base CV from the same seed. Keeps the same tailored ' +
+          'id and agent session; preserves template and typography on each row. 409 when ' +
+          'the CV is not tailored or there is no usable seed. Upload alone does not do ' +
+          'this — this is the explicit apply.',
         pathParams: [{ name: 'id', type: 'string (uuid)', required: true, description: 'The tailored CV id.' }],
-        curl: `curl -X POST "${BASE_URL}/me/cvs/7d1a…/reset-from-resume" -b cookies.txt`,
+        curl: `curl -X POST "${BASE_URL}/me/cvs/7d1a…/reseed" -b cookies.txt`,
         responseExample: `{ "data": { "id": "7d1a…", "title": "Tailored for …", "template_id": "classic-ats", "document": { … } } }`,
       },
       {

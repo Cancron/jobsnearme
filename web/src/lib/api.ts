@@ -2595,20 +2595,21 @@ export function createApi(
     );
   }
 
-  /** Rebuild this tailored CV (and the base) from the current résumé seed. Cookie-only.
+  /** Rebuild this tailored CV (and the base) from the current seed — the experience bank
+   *  first, the résumé's own extract only for what the bank doesn't track. Cookie-only.
    *  Same id and agent session; presentation preserved. 409 when the CV is not tailored or
    *  there is nothing to seed from. */
-  async function resetCvFromResume(id: string): Promise<CvRecord> {
+  async function reseedCv(id: string): Promise<CvRecord> {
     return requestData<CvRecord>(
-      `/api/v1/me/cvs/${encodeURIComponent(id)}/reset-from-resume`,
+      `/api/v1/me/cvs/${encodeURIComponent(id)}/reseed`,
       jsonBody('POST', {}),
     );
   }
 
-  /** Rebuild the base CV from the current résumé seed. Cookie-only. Does not touch
+  /** Rebuild the base CV from the current seed. Cookie-only. Does not touch
    *  tailored copies. 409 when there is nothing to seed from. */
-  async function resetBaseCvFromResume(): Promise<CvRecord> {
-    return requestData<CvRecord>('/api/v1/me/cvs/base/reset-from-resume', jsonBody('POST', {}));
+  async function reseedBaseCv(): Promise<CvRecord> {
+    return requestData<CvRecord>('/api/v1/me/cvs/base/reseed', jsonBody('POST', {}));
   }
 
   async function getCvAtsDelta(id: string): Promise<CvAtsDelta> {
@@ -3114,8 +3115,8 @@ export function createApi(
     openCoverLetterStream,
     undoCvRevision,
     undoCvRevisionRun,
-    resetCvFromResume,
-    resetBaseCvFromResume,
+    reseedCv,
+    reseedBaseCv,
     tailorCv,
     startTailorSession,
     resolveJd,

@@ -213,10 +213,10 @@ func (h *cvHandlers) register(api fiber.Router, mw middleware) {
 	api.Post("/me/cvs/tailor", mw.key, h.TailorCV)
 	api.Post("/me/cvs/:id/tailor-session", mw.cookie, h.StartTailorSession)
 	// Literal `/base/` before `:id` — otherwise Fiber treats "base" as a CV uuid.
-	api.Post("/me/cvs/base/reset-from-resume", mw.cookie, h.ResetBaseCVFromResume)
-	// Rebuild this tailored CV (and the base) from the current résumé seed. Cookie-only:
+	api.Post("/me/cvs/base/reseed", mw.cookie, h.ReseedBaseCV)
+	// Rebuild this tailored CV (and the base) from the current seed. Cookie-only:
 	// destructive whole-document replace; the browser is where the candidate confirms it.
-	api.Post("/me/cvs/:id/reset-from-resume", mw.cookie, h.ResetCVFromResume)
+	api.Post("/me/cvs/:id/reseed", mw.cookie, h.ReseedCV)
 	api.Patch("/me/cvs/:id", mw.key, h.PatchCV)
 	api.Put("/me/cvs/:id/session", mw.key, h.SetCVSession)
 	api.Get("/me/cvs/:id/tailor-context", mw.key, h.TailorContext)
