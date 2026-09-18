@@ -104,16 +104,16 @@ the platform's internal data carries bounds for a non-shared posting.
 ### Requirement: Facts without a structured field are folded into the description
 
 For a posting fact the platform states but freehire's `Job` shape has no dedicated field for
-(equity-only or equity-inclusive compensation, employment type such as part-time, and visa
-sponsorship), the adapter SHALL fold that fact into the posting's description text rather than
-discarding it.
+(equity-only or equity-inclusive compensation, and visa sponsorship), the adapter SHALL fold that
+fact into the posting's description text rather than discarding it. Employment type is excluded
+from this rule: `Job.EmploymentType` is a real structured field, so a stated employment type is
+mapped onto it directly (see the posting-normalization requirement) rather than duplicated into
+prose.
 
-#### Scenario: An equity-only, part-time posting states both facts in its description
+#### Scenario: An equity-only posting states that fact in its description
 
-- **WHEN** a posting's compensation offers equity with no salary and states a part-time employment
-  type
-- **THEN** the resulting `Job`'s description states both the equity-only nature and the part-time
-  arrangement
+- **WHEN** a posting's compensation offers equity with no salary
+- **THEN** the resulting `Job`'s description states the equity-only nature of the compensation
 
 #### Scenario: Visa sponsorship is stated in the description
 
