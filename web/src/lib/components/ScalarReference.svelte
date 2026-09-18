@@ -85,10 +85,32 @@
      short Param/Filter column beside a Values column holding long comma-separated
      lists, so at the width available inside Scalar's content pane the fixed split
      squeezes Param/Filter narrower than a single word — and `word-break: break-word`
-     (also Scalar's own) then breaks mid-word. `auto` sizes each column to its own
-     content instead and lets the table's own `overflow-x: auto` scroll horizontally
-     if the result is still wider than the pane. */
+     (also Scalar's own) then breaks mid-word.
+
+     `table-layout: auto` alone does not fix this: the browser's auto-layout
+     algorithm still shrinks a column to its CSS min-content width when the table
+     does not fit its container, and `word-break: break-word` makes a cell's
+     min-content effectively one character wide — so Param/Filter kept breaking
+     mid-word even with `auto` (confirmed live on freehire.me at both a 1280px and
+     a 390px viewport: computed `th` width was 51px, one letter per line).
+
+     `word-break: normal` restores the real min-content width (a whole word, or a
+     hyphenated segment), which is what actually stops the mid-word break. That
+     alone would just overflow the pane instead, since nothing here made the table
+     — or any ancestor, checked live, all `overflow-x: visible` — a scroll
+     container; `overflow-x: auto` on the table itself is what turns "wider than
+     the pane" into a swipeable table instead of a layout overflow. The Values
+     column still wraps normally at its own commas/spaces either way — only a
+     single unbroken word (a param name, a short label) was ever forced this
+     narrow. */
   :global(.scalar-app .markdown table) {
     table-layout: auto !important;
+    overflow-x: auto !important;
+    max-width: 100%;
+  }
+
+  :global(.scalar-app .markdown table th),
+  :global(.scalar-app .markdown table td) {
+    word-break: normal !important;
   }
 </style>
