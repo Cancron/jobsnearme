@@ -129,7 +129,7 @@ describe('seniorityLabel', () => {
 });
 
 describe('roleQualifies / rankedQualifyingRoles', () => {
-  it('publishes a leaf only for a real seniority in a covered category with enough demand', () => {
+  it('lists in the SITEMAP only a real seniority in a covered category with enough demand', () => {
     const roles = [
       role('backend', 'senior', MIN_CATEGORY_OPEN),
       // Same covered category, but this level alone is too thin for its own page.
@@ -143,6 +143,14 @@ describe('roleQualifies / rankedQualifyingRoles', () => {
     expect(rankedQualifyingRoles(roles).map((r) => [r.category, r.seniority])).toEqual([
       ['backend', 'senior'],
     ]);
+
+    // But the thin one is still a real ADDRESS, so the route serves it (noindex) rather
+    // than refusing it — the job page links there without knowing the role's size.
+    expect(roleAddressExists('backend', 'junior')).toBe(true);
+    // And so is a role in a category too small to be COVERED. The job page links from a
+    // posting knowing only its two facets, so a coverage requirement here would send a
+    // real posting's real role to a 404.
+    expect(roleAddressExists('qa', 'lead')).toBe(true);
   });
 
   it('asks about the role handed to it, not about its rank in the list', () => {
@@ -156,16 +164,17 @@ describe('roleQualifies / rankedQualifyingRoles', () => {
   });
 
   it('answers whether an address exists without needing the role\'s size', () => {
-    // This half must be answerable BEFORE the API is asked, because the endpoint
-    // answers an invented level with a 400 and a load turns that into a 500 — a
-    // mistyped URL would say "we broke" instead of "no such page".
-    const roles = [role('backend', 'senior', MIN_CATEGORY_OPEN)];
-
-    expect(roleAddressExists(roles, 'backend', 'senior')).toBe(true);
+    // Takes no ranking on purpose — the job page links here knowing only a posting's two
+    // facets. It must also be answerable BEFORE the API is asked: the endpoint answers an
+    // invented level with a 400 and a load turns that into a 500, so a mistyped URL would
+    // say "we broke" instead of "no such page".
+    expect(roleAddressExists('backend', 'senior')).toBe(true);
     // A real address that is merely thin still EXISTS — the demand check is separate.
-    expect(roleAddressExists(roles, 'backend', 'junior')).toBe(true);
-    expect(roleAddressExists(roles, 'backend', 'archmage')).toBe(false);
-    expect(roleAddressExists(roles, 'not_a_category', 'senior')).toBe(false);
+    expect(roleAddressExists('backend', 'junior')).toBe(true);
+    expect(roleAddressExists('backend', 'archmage')).toBe(false);
+    expect(roleAddressExists('not_a_category', 'senior')).toBe(false);
+    // `other` is a real vocabulary value and not a role anybody hires for.
+    expect(roleAddressExists('other', 'senior')).toBe(false);
   });
 
   it('refuses a thin role, an invented level, and an uncovered category', () => {

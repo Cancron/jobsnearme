@@ -32,7 +32,7 @@ export const load: PageServerLoad = async ({ params, fetch, request, setHeaders 
   // invented level is a 400 from the endpoint, which a load turns into a 500 — so a
   // mistyped URL would answer "we broke" instead of "no such page". The demand check has
   // to wait for the role's own open-count, but this half never did.
-  if (!roleAddressExists(globalRoles, category, seniority)) error(404, NOT_COVERED);
+  if (!roleAddressExists(category, seniority)) error(404, NOT_COVERED);
 
   // The cookie is forwarded so the coverage overlay can be resolved during SSR — with
   // an absolute API base, event.fetch does not carry it on its own. The category-wide
@@ -45,13 +45,18 @@ export const load: PageServerLoad = async ({ params, fetch, request, setHeaders 
   ]);
   if (!role) error(404, NOT_COVERED);
 
-  // The demand half of the gate, asked of THIS role's own open-count rather than of its
-  // rank in the gate's list.
-  // The list is capped at 200 by the endpoint, and production carries ~349 roles over the
-  // floor — so reading qualification off the ranking 404'd 149 pages that the documented
-  // rule says should exist. The category still comes from the ranking, which is what
-  // coveredCategories legitimately measures.
-  if (!roleQualifies(globalRoles, category, seniority, role.open_count)) error(404, NOT_COVERED);
+  // The demand floor decides whether this page is worth INDEXING, not whether a visitor
+  // may read it. It is asked of THIS role's own open-count rather than of its rank in the
+  // gate's list, which the endpoint caps at 200 while production carries ~349 roles over
+  // the floor.
+  //
+  // A thin role is SERVED, not refused: the job page links straight here from any posting
+  // carrying both facets and cannot know the role's size without a request of its own, and
+  // a link into a 404 is the failure this gate exists to avoid. The page answers honestly
+  // — its table already has an empty state saying too few postings list skills — and
+  // carries noindex, so the other failure, a thin page in the index, is closed too. The
+  // sitemap goes on listing only what clears the floor.
+  const thin = !roleQualifies(globalRoles, category, seniority, role.open_count);
 
   // A page carrying one visitor's coverage must never be held by a shared cache. The
   // sibling insights pages all set s-maxage, so the anonymous path keeps that and the
@@ -61,6 +66,7 @@ export const load: PageServerLoad = async ({ params, fetch, request, setHeaders 
   });
 
   return {
+    thin,
     category,
     seniority,
     label: categoryLabel(category),
