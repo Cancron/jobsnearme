@@ -205,9 +205,11 @@ func (s Scheduler) Tick(ctx context.Context) (TickResult, error) {
 
 	// The light pool's cap is what is LEFT of Cap after the heavy reservation — carved OUT
 	// of the total, never added beside it, so this split cannot raise real fleet
-	// concurrency past Cap. A misconfigured HeavyCap past Cap must not leave the light pool
-	// negative forever; clamped the same way a negative budget below is.
-	heavyCap := s.heavyCap()
+	// concurrency past Cap. heavyCap itself is clamped to Cap first: maxRuns below is a
+	// sanity ceiling (1000), not the fleet's real cap, so a misconfigured HeavyCap > Cap
+	// would otherwise let the heavy pool alone claim past Cap while lightCap merely floors
+	// at zero — the split existing to PROTECT the fleet cap must not become a way around it.
+	heavyCap := clamp(s.heavyCap(), 0, s.cap())
 	lightCap := clamp(s.cap()-heavyCap, 0, maxRuns)
 	result.Heavy.Cap = heavyCap
 	result.Light.Cap = lightCap

@@ -608,6 +608,7 @@ SELECT b.provider,
        s.disabled_reason,
        s.notes,
        s.managed,
+       s.heavy,
        COALESCE(rs.shards_in_state, 0)::int AS shards_in_state,
        COALESCE(rs.in_flight, 0)::int       AS in_flight,
        rs.next_due_at,
@@ -635,6 +636,7 @@ type ReportIngestScheduleRow struct {
 	DisabledReason pgtype.Text        `json:"disabled_reason"`
 	Notes          pgtype.Text        `json:"notes"`
 	Managed        pgtype.Bool        `json:"managed"`
+	Heavy          pgtype.Bool        `json:"heavy"`
 	ShardsInState  int32              `json:"shards_in_state"`
 	InFlight       int32              `json:"in_flight"`
 	NextDueAt      pgtype.Timestamptz `json:"next_due_at"`
@@ -668,6 +670,7 @@ func (q *Queries) ReportIngestSchedule(ctx context.Context) ([]ReportIngestSched
 			&i.DisabledReason,
 			&i.Notes,
 			&i.Managed,
+			&i.Heavy,
 			&i.ShardsInState,
 			&i.InFlight,
 			&i.NextDueAt,
@@ -685,7 +688,7 @@ func (q *Queries) ReportIngestSchedule(ctx context.Context) ([]ReportIngestSched
 
 const upsertIngestSchedule = `-- name: UpsertIngestSchedule :exec
 INSERT INTO ingest_schedule (provider, shards, cadence_sec, timeout_sec,
-                             enabled, disabled_reason, notes, managed)
+                             enabled, disabled_reason, notes, managed, heavy)
 VALUES ($1,
         COALESCE($2::int, $3::int),
         COALESCE($4::int, $5::int),
@@ -693,7 +696,10 @@ VALUES ($1,
         COALESCE($8::boolean, true),
         $9::text,
         $10::text,
-        COALESCE($11::boolean, false))
+        COALESCE($11::boolean, false),
+        -- No DefaultHeavy argument: unlike shards/cadence/timeout, false IS the documented
+        -- default (ingestsched.Settings{} zero value), not a fact duplicated from Go.
+        COALESCE($12::boolean, false))
 ON CONFLICT (provider) DO UPDATE SET
     shards          = COALESCE($2::int, ingest_schedule.shards),
     cadence_sec     = COALESCE($4::int, ingest_schedule.cadence_sec),
@@ -702,6 +708,7 @@ ON CONFLICT (provider) DO UPDATE SET
     disabled_reason = COALESCE($9::text, ingest_schedule.disabled_reason),
     notes           = COALESCE($10::text, ingest_schedule.notes),
     managed         = COALESCE($11::boolean, ingest_schedule.managed),
+    heavy           = COALESCE($12::boolean, ingest_schedule.heavy),
     updated_at      = now()
 `
 
@@ -717,6 +724,7 @@ type UpsertIngestScheduleParams struct {
 	DisabledReason    pgtype.Text `json:"disabled_reason"`
 	Notes             pgtype.Text `json:"notes"`
 	Managed           pgtype.Bool `json:"managed"`
+	Heavy             pgtype.Bool `json:"heavy"`
 }
 
 // Write one provider's override. Every argument is optional: a NULL means "leave this
@@ -748,6 +756,7 @@ func (q *Queries) UpsertIngestSchedule(ctx context.Context, arg UpsertIngestSche
 		arg.DisabledReason,
 		arg.Notes,
 		arg.Managed,
+		arg.Heavy,
 	)
 	return err
 }

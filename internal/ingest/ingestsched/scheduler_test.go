@@ -302,6 +302,54 @@ func TestHeavyAndLightPoolsAreBudgetedIndependently(t *testing.T) {
 	}
 }
 
+// A misconfigured HeavyCap greater than Cap must not let the heavy pool alone claim past
+// the fleet's real ceiling — the split exists to PROTECT Cap, not to open a second door
+// around it. maxRuns (the sqlc claim LIMIT's own sanity ceiling, 1000) is not a stand-in for
+// Cap, so heavyCap itself must be clamped, not just lightCap.
+func TestHeavyCapNeverClaimsPastTheFleetCap(t *testing.T) {
+	paylocity := managed("paylocity")
+	paylocity.Shards = 24 // sharded, so every one of its runs is heavy
+	repo := &fakeRepo{
+		eligible: []Settings{paylocity},
+		due: []Run{
+			{Provider: "paylocity", Shard: 1, Shards: 24, RunTimeout: DefaultRunTimeout},
+			{Provider: "paylocity", Shard: 2, Shards: 24, RunTimeout: DefaultRunTimeout},
+			{Provider: "paylocity", Shard: 3, Shards: 24, RunTimeout: DefaultRunTimeout},
+			{Provider: "paylocity", Shard: 4, Shards: 24, RunTimeout: DefaultRunTimeout},
+			{Provider: "paylocity", Shard: 5, Shards: 24, RunTimeout: DefaultRunTimeout},
+			{Provider: "paylocity", Shard: 6, Shards: 24, RunTimeout: DefaultRunTimeout},
+			{Provider: "paylocity", Shard: 7, Shards: 24, RunTimeout: DefaultRunTimeout},
+			{Provider: "paylocity", Shard: 8, Shards: 24, RunTimeout: DefaultRunTimeout},
+			{Provider: "paylocity", Shard: 9, Shards: 24, RunTimeout: DefaultRunTimeout},
+			{Provider: "paylocity", Shard: 10, Shards: 24, RunTimeout: DefaultRunTimeout},
+			{Provider: "paylocity", Shard: 11, Shards: 24, RunTimeout: DefaultRunTimeout},
+			{Provider: "paylocity", Shard: 12, Shards: 24, RunTimeout: DefaultRunTimeout},
+		},
+	}
+	launcher := &fakeLauncher{}
+	// HeavyCap (20) exceeds Cap (10) — an operator typo, or a HeavyCap left over from a
+	// larger fleet after Cap was lowered.
+	sched := Scheduler{Repo: repo, Launcher: launcher, Cap: 10, HeavyCap: 20, Grace: time.Minute, Apply: true}
+
+	got, err := sched.Tick(context.Background())
+	if err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	if repo.heavyLimit > 10 {
+		t.Errorf("heavy claim limit = %d, want <= Cap (10) — a misconfigured HeavyCap must not raise real fleet concurrency past Cap", repo.heavyLimit)
+	}
+	if got.Heavy.Cap > 10 {
+		t.Errorf("Heavy.Cap = %d, want <= 10", got.Heavy.Cap)
+	}
+	if got.Light.Cap != 0 {
+		t.Errorf("Light.Cap = %d, want 0 (Cap 10 - clamped HeavyCap 10)", got.Light.Cap)
+	}
+	if len(launcher.launched) > 10 {
+		t.Errorf("launched %d runs, want at most Cap (10)", len(launcher.launched))
+	}
+}
+
 // Run state is TRACKED for every enabled provider, including the ones still owned by their
 // static timer. Two reasons, and the second is the one that nearly sank the rollout plan:
 //

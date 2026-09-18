@@ -281,6 +281,7 @@ SELECT b.provider,
        s.disabled_reason,
        s.notes,
        s.managed,
+       s.heavy,
        COALESCE(rs.shards_in_state, 0)::int AS shards_in_state,
        COALESCE(rs.in_flight, 0)::int       AS in_flight,
        rs.next_due_at,
@@ -316,7 +317,7 @@ ORDER BY b.provider;
 -- leaves the column defaults for hand-written psql only, where the schema test pins them to
 -- the same constants.
 INSERT INTO ingest_schedule (provider, shards, cadence_sec, timeout_sec,
-                             enabled, disabled_reason, notes, managed)
+                             enabled, disabled_reason, notes, managed, heavy)
 VALUES (sqlc.arg(provider),
         COALESCE(sqlc.narg(shards)::int, sqlc.arg(default_shards)::int),
         COALESCE(sqlc.narg(cadence_sec)::int, sqlc.arg(default_cadence_sec)::int),
@@ -324,7 +325,10 @@ VALUES (sqlc.arg(provider),
         COALESCE(sqlc.narg(enabled)::boolean, true),
         sqlc.narg(disabled_reason)::text,
         sqlc.narg(notes)::text,
-        COALESCE(sqlc.narg(managed)::boolean, false))
+        COALESCE(sqlc.narg(managed)::boolean, false),
+        -- No DefaultHeavy argument: unlike shards/cadence/timeout, false IS the documented
+        -- default (ingestsched.Settings{} zero value), not a fact duplicated from Go.
+        COALESCE(sqlc.narg(heavy)::boolean, false))
 ON CONFLICT (provider) DO UPDATE SET
     shards          = COALESCE(sqlc.narg(shards)::int, ingest_schedule.shards),
     cadence_sec     = COALESCE(sqlc.narg(cadence_sec)::int, ingest_schedule.cadence_sec),
@@ -333,4 +337,5 @@ ON CONFLICT (provider) DO UPDATE SET
     disabled_reason = COALESCE(sqlc.narg(disabled_reason)::text, ingest_schedule.disabled_reason),
     notes           = COALESCE(sqlc.narg(notes)::text, ingest_schedule.notes),
     managed         = COALESCE(sqlc.narg(managed)::boolean, ingest_schedule.managed),
+    heavy           = COALESCE(sqlc.narg(heavy)::boolean, ingest_schedule.heavy),
     updated_at      = now();
