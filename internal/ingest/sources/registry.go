@@ -277,6 +277,9 @@ func All(c HTTPClient) map[string]Source {
 		NewHabrCareer(c),
 		NewGeekjob(c),
 		NewGetro(c),
+		// Dover: boarded ATS (board = company slug), public JSON API with no bot protection on
+		// the data endpoints — only the browser apply-submission flow gates behind Turnstile.
+		NewDover(c),
 		NewJobylon(c),
 		NewWorkAtAStartup(c),
 		NewJobStash(c),
