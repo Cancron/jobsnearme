@@ -280,6 +280,77 @@ func TestListChronicBoardsMaxBoardsCapsButReportsFullTotal(t *testing.T) {
 	}
 }
 
+// TestSetBoardCooldownGuardsOnConsecutiveFailures pins the CAS guard that keeps two
+// concurrent RecordFailure calls for the same board from applying their cooldowns out of
+// order (the pipeline's worker pool can legitimately process one board twice in a run). A
+// call whose expected consecutive_failures no longer matches the stored value — a newer
+// writer already moved it — affects zero rows and must not touch cooldown_until; a call
+// whose expected value still matches applies exactly as before.
+func TestSetBoardCooldownGuardsOnConsecutiveFailures(t *testing.T) {
+	pool := startPostgres(t)
+	q := New(pool)
+	ctx := context.Background()
+	truncateBoardHealth(t, pool)
+
+	if _, err := q.RecordBoardFailure(ctx, RecordBoardFailureParams{
+		Provider: "greenhouse", Board: "acme", Region: "",
+		LastError: pgtype.Text{String: "boom", Valid: true},
+	}); err != nil {
+		t.Fatalf("seed failure: %v", err)
+	}
+
+	// Truncated to microseconds: that is all timestamptz stores, so an untruncated
+	// nanosecond-precision time.Now() round-trips through Postgres with its last digits
+	// rounded away, and a direct comparison against the pre-truncation value fails even
+	// though both name the same cooldown.
+	staleCooldown := pgtype.Timestamptz{Time: time.Now().Add(time.Hour).Truncate(time.Microsecond), Valid: true}
+	rows, err := q.SetBoardCooldown(ctx, SetBoardCooldownParams{
+		Provider: "greenhouse", Board: "acme", Region: "",
+		CooldownUntil:       staleCooldown,
+		ConsecutiveFailures: 99, // does not match the actual stored value (1)
+	})
+	if err != nil {
+		t.Fatalf("SetBoardCooldown (mismatched guard): %v", err)
+	}
+	if rows != 0 {
+		t.Fatalf("rows affected = %d, want 0 for a mismatched expected consecutive_failures", rows)
+	}
+	if until, ok, err := getCooldown(ctx, q, "greenhouse", "acme"); err != nil {
+		t.Fatalf("read cooldown after mismatched guard: %v", err)
+	} else if ok {
+		t.Fatalf("cooldown_until = %v, want still NULL — a mismatched guard must write nothing", until)
+	}
+
+	freshCooldown := pgtype.Timestamptz{Time: time.Now().Add(2 * time.Hour).Truncate(time.Microsecond), Valid: true}
+	rows, err = q.SetBoardCooldown(ctx, SetBoardCooldownParams{
+		Provider: "greenhouse", Board: "acme", Region: "",
+		CooldownUntil:       freshCooldown,
+		ConsecutiveFailures: 1, // matches the actual stored value
+	})
+	if err != nil {
+		t.Fatalf("SetBoardCooldown (matching guard): %v", err)
+	}
+	if rows != 1 {
+		t.Fatalf("rows affected = %d, want 1 for a matching expected consecutive_failures", rows)
+	}
+	if until, ok, err := getCooldown(ctx, q, "greenhouse", "acme"); err != nil {
+		t.Fatalf("read cooldown after matching guard: %v", err)
+	} else if !ok || !until.Equal(freshCooldown.Time) {
+		t.Fatalf("cooldown_until = (%v, %v), want (%v, true)", until, ok, freshCooldown.Time)
+	}
+}
+
+func getCooldown(ctx context.Context, q *Queries, provider, board string) (time.Time, bool, error) {
+	ts, err := q.GetBoardCooldown(ctx, GetBoardCooldownParams{Provider: provider, Board: board, Region: ""})
+	if err != nil {
+		return time.Time{}, false, err
+	}
+	if !ts.Valid {
+		return time.Time{}, false, nil
+	}
+	return ts.Time, true, nil
+}
+
 func chronicBoardNames(rows []ListChronicBoardsRow) []string {
 	names := make([]string, len(rows))
 	for i, r := range rows {

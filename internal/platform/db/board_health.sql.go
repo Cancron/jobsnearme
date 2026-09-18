@@ -510,27 +510,42 @@ func (q *Queries) RecordBoardSuccess(ctx context.Context, arg RecordBoardSuccess
 	return err
 }
 
-const setBoardCooldown = `-- name: SetBoardCooldown :exec
+const setBoardCooldown = `-- name: SetBoardCooldown :execrows
 UPDATE board_health
 SET cooldown_until = $4
-WHERE provider = $1 AND board = $2 AND region = $3
+WHERE provider = $1 AND board = $2 AND region = $3 AND consecutive_failures = $5
 `
 
 type SetBoardCooldownParams struct {
-	Provider      string             `json:"provider"`
-	Board         string             `json:"board"`
-	Region        string             `json:"region"`
-	CooldownUntil pgtype.Timestamptz `json:"cooldown_until"`
+	Provider            string             `json:"provider"`
+	Board               string             `json:"board"`
+	Region              string             `json:"region"`
+	CooldownUntil       pgtype.Timestamptz `json:"cooldown_until"`
+	ConsecutiveFailures int32              `json:"consecutive_failures"`
 }
 
 // Apply the Go-computed cooldown window to a board (called only when the backoff
 // policy says to cool down).
-func (q *Queries) SetBoardCooldown(ctx context.Context, arg SetBoardCooldownParams) error {
-	_, err := q.db.Exec(ctx, setBoardCooldown,
+//
+// Guarded by the consecutive_failures value the cooldown was computed FROM (the count
+// RecordBoardFailure just returned), not merely the board's identity: the pipeline's worker
+// pool can process the same board twice in one run, so two concurrent RecordFailure calls can
+// race between their own RecordBoardFailure and this UPDATE. Without the guard, whichever
+// SetBoardCooldown lands last wins regardless of which failure count is newer — an earlier,
+// shorter cooldown can overwrite a later, longer one, or this call can clobber a cooldown a
+// concurrent RecordSuccess/ClearProviderCooldowns just cleared. Zero rows affected means a
+// newer writer already moved consecutive_failures past what this cooldown was computed from —
+// expected under the race, not an error, and the caller applies nothing further.
+func (q *Queries) SetBoardCooldown(ctx context.Context, arg SetBoardCooldownParams) (int64, error) {
+	result, err := q.db.Exec(ctx, setBoardCooldown,
 		arg.Provider,
 		arg.Board,
 		arg.Region,
 		arg.CooldownUntil,
+		arg.ConsecutiveFailures,
 	)
-	return err
+	if err != nil {
+		return 0, err
+	}
+	return result.RowsAffected(), nil
 }
