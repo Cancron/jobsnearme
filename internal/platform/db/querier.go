@@ -1941,6 +1941,15 @@ type Querier interface {
 	// schedule to respect, and the concurrency cap is what keeps a fresh 24-way provider from
 	// taking the whole fleet at once.
 	EnsureRunStateShards(ctx context.Context, arg EnsureRunStateShardsParams) error
+	// Insert an all-unstated row for user_id if none exists yet; a no-op otherwise. Called
+	// before GetScreeningAnswersForUpdate in the same transaction so that query always has a
+	// row to lock — FOR UPDATE locks nothing on an absent row, which otherwise lets two
+	// concurrent first-time Updates for the same brand-new user both read Answers{} and race an
+	// unguarded INSERT ... ON CONFLICT DO UPDATE (see QueriesRepository.UpdateLocked). Two
+	// concurrent callers inserting the same user_id serialize on the table's own unique index:
+	// the second blocks until the first commits or rolls back, then sees the row (if committed)
+	// and does nothing, or proceeds normally (if rolled back) — never a duplicate, never an error.
+	EnsureScreeningAnswersRow(ctx context.Context, userID int64) (int64, error)
 	// Seed today's counter for (user, feature) so the SELECT ... FOR UPDATE below always has
 	// a row to lock. That lock is what serialises two simultaneous first-ever consumptions,
 	// so an allowance can never be oversold by a race. An existing row is left untouched.
@@ -2561,6 +2570,13 @@ type Querier interface {
 	// The caller's single screening-answers record, keyed by user_id. No matching row means
 	// the candidate has not stated any screening answer yet.
 	GetScreeningAnswers(ctx context.Context, userID int64) (ScreeningAnswer, error)
+	// Same as GetScreeningAnswers, but takes a row lock (SELECT ... FOR UPDATE) for the rest
+	// of the caller's transaction, so a concurrent Update for the same user_id blocks on this
+	// SELECT until the first transaction commits instead of both reading the same stale row
+	// and racing a lost update (see QueriesRepository.UpdateLocked). Always finds exactly one
+	// row: the caller runs EnsureScreeningAnswersRow first in the same transaction, so there is
+	// never a "no row to lock" case here.
+	GetScreeningAnswersForUpdate(ctx context.Context, userID int64) (ScreeningAnswer, error)
 	// Narrow read for GET /jobs/:slug/similar (internal/api/handler/similar.go): only the
 	// precomputed neighbour-id list (jobs.similar_job_ids, populated by
 	// cmd/similar-backfill — see semantic.sql's job_semantic_chunks section), not the

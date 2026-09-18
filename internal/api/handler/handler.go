@@ -504,7 +504,7 @@ func Register(app *fiber.App, cfg Config) {
 	// The candidate's own screening answers (visa, salary, notice period, relocation, …) —
 	// a distinct singleton from profileSvc above (search/targeting preferences, a
 	// different lifecycle; see internal/ingest/screeninganswers/AGENTS.md).
-	screeningAnswersSvc := screeninganswers.New(screeninganswers.NewQueriesRepository(queries))
+	screeningAnswersSvc := screeninganswers.New(screeninganswers.NewQueriesRepository(queries, cfg.Pool))
 	screeningAnswersH := newScreeningAnswersHandlers(screeningAnswersSvc)
 	// The candidate's accumulating bank of screening-question answers (internal/candidate/
 	// answerbank) — a third, distinct store from screeningAnswersSvc's six typed facts: this
