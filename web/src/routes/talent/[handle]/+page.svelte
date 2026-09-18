@@ -198,13 +198,11 @@
         </p>
       {/if}
 
-      <p class="text-xs text-muted-foreground">
-        Names and contact details are never shown here, and no employer is published as such
-        — the profile is published anonymously by the candidate's own choice. Job titles are
-        shown as the candidate wrote them, so one that names an employer will show it. A
-        photo, if uploaded, is shown heavily blurred and cannot be recovered in its original
-        form.
-      </p>
+      <!-- There used to be a disclaimer here, restating what the projection withholds and
+           what it publishes verbatim. It was addressed to the wrong reader: a visitor has
+           no decision to make about it, and the person who does — the candidate — is told
+           in full on /my/talent-network, before joining. Keeping a second copy on a page
+           nobody acts from bought nothing and was one more string to keep true. -->
     </div>
 
     {#if card.skills.length}
