@@ -90,14 +90,6 @@
      raw text with no card wrapper, so 16px reads tight against the edge; sm+ falls
      back to the shared px-4 rhythm. -->
 <div class="mx-auto w-full max-w-6xl px-5 py-6 sm:px-4">
-  <!-- Two instances, one visible at a time via CSS rather than a JS breakpoint check: on a
-       phone the trail sits far from the title/apply button at the very top, so it moves
-       below the related postings and right above "See also" instead; sm+ keeps it where a
-       breadcrumb is expected, above the title. `hidden`/`sm:hidden` removes the inactive
-       one from the accessibility tree too, so a screen reader only ever finds one nav
-       landmark named "Breadcrumb". -->
-  <Breadcrumbs items={visibleBreadcrumbItems} class="mb-4 hidden sm:block" />
-
   <JobView job={data.job} applyForm={data.applyForm} />
 
   <JobRelated
@@ -107,7 +99,10 @@
     slug={data.job.public_slug}
   />
 
-  <Breadcrumbs items={visibleBreadcrumbItems} class="mb-4 sm:hidden" />
+  <!-- Below the related postings and right above "See also" on every width: at the top
+       of the page it sat far from the title/apply button on a phone, and it stole space
+       from the match card and provenance line above the title on a wide screen too. -->
+  <Breadcrumbs items={visibleBreadcrumbItems} class="my-4" />
 
   <JobSeeAlso cards={data.seeAlso} />
 
