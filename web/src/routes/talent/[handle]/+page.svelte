@@ -47,10 +47,14 @@
     return `${from} — ${to}`;
   }
 
-  // A title the dictionary could not place still gets a row, under a neutral label:
-  // dropping it would make a work history look shorter than it is.
+  // The candidate's own words when the card carries them — the one field it publishes
+  // verbatim, and the reason this section reads as a career rather than as a column of
+  // "Senior · Backend". The dictionary label is the fallback, not the default: a title is
+  // absent only when the extraction found none, or when it was blanked upstream for
+  // carrying a redaction placeholder. A row with neither still gets a neutral label,
+  // because dropping it would make a work history look shorter than it is.
   function roleHeading(role: (typeof card.roles)[number]): string {
-    return talentHeading(role.seniority, role.category, 'Role');
+    return role.title?.trim() || talentHeading(role.seniority, role.category, 'Role');
   }
 
   /** An education entry's chip text: "Bachelor's degree · 2019", or just the level
@@ -195,9 +199,11 @@
       {/if}
 
       <p class="text-xs text-muted-foreground">
-        Names, employers and contact details are never shown here — the profile is published
-        anonymously by the candidate's own choice. A photo, if uploaded, is shown heavily
-        blurred and cannot be recovered in its original form.
+        Names and contact details are never shown here, and no employer is published as such
+        — the profile is published anonymously by the candidate's own choice. Job titles are
+        shown as the candidate wrote them, so one that names an employer will show it. A
+        photo, if uploaded, is shown heavily blurred and cannot be recovered in its original
+        form.
       </p>
     </div>
 

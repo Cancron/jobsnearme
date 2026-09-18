@@ -1438,6 +1438,13 @@ export interface EducationEntry {
  * CandidateRole is one position: what it was, when, and what it was built with.
  */
 export interface CandidateRole {
+  /**
+   * Title is the candidate's own words, verbatim — the card's ONE exception to the
+   * dictionary-only rule, argued in this file's header comment. Seniority and Category
+   * remain beside it as the fallback for a role whose title is absent, and as the
+   * values every filter reads: the raw string is for a human to read, never to match on.
+   */
+  title?: string;
   seniority?: string;
   category?: string;
   start?: { year: number; month?: number };
