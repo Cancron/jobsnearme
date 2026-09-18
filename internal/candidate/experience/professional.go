@@ -5,7 +5,6 @@ import (
 
 	"github.com/google/uuid"
 
-	"github.com/strelov1/freehire/internal/candidate/cv"
 	"github.com/strelov1/freehire/internal/candidate/resumeextract"
 )
 
@@ -112,26 +111,11 @@ func experienceFromBank(employments []Employment, atoms []Atom) []resumeextract.
 	return out
 }
 
-// seedHistoryFromBank composes the bank into what cv.Seed will turn into a document, and
-// is the one reader of publishableHighlights that must cap each bucket at cv.MaxBullets
-// — the same ceiling cvedit's CommitDocument refuses to exceed on the write side
-// (listcap.go). A bank atom carries no confidence or date signal of its own (see the Atom
-// struct), and the store lists atoms oldest-created first, so "most relevant" here means
-// most recently confirmed: mostRecent keeps the tail, not limit's head, or a bucket over
-// the cap would silently prefer stale evidence over what the candidate most recently
-// added.
-//
-// Capping HERE, not only at cvedit's write gate, is what stops "reseed" refusing forever
-// once a bank has simply grown past the ceiling over years of real use: the write gate
-// can only refuse a seed that is already too large, and this is what built it that way.
-// experienceFromBank (WorkHistory/Professional) deliberately does NOT cap — fit-analysis
-// scoring and the /me/profile API need every banked achievement, not a printable page's
-// worth of the most recent ones.
 func seedHistoryFromBank(employments []Employment, atoms []Atom) SeedHistory {
 	highlights, placeless := publishableHighlights(atoms)
 	var out SeedHistory
 	for _, e := range employments {
-		hs := mostRecent(highlights[e.ID], cv.MaxBullets)
+		hs := highlights[e.ID]
 		if e.Kind == KindProject {
 			out.HasProjectEmployments = true
 			name := e.Company
@@ -148,7 +132,7 @@ func seedHistoryFromBank(employments []Employment, atoms []Atom) SeedHistory {
 		out.Experience = append(out.Experience, experienceRow(e, hs))
 	}
 	if len(placeless) > 0 {
-		out.Experience = append(out.Experience, resumeextract.Experience{Highlights: mostRecent(placeless, cv.MaxBullets)})
+		out.Experience = append(out.Experience, resumeextract.Experience{Highlights: placeless})
 	}
 	// Job-kind rows and placeless evidence both land in Experience; a bank that only ever
 	// held project-kind rows leaves it empty, and the seeder must fall back to the
@@ -173,12 +157,6 @@ func experienceRow(e Employment, highlights []string) resumeextract.Experience {
 	}
 }
 
-// publishableHighlights buckets every publishable atom by its employment, or into
-// placeless for evidence with no employment at all. Uncapped: this feeds both
-// seedHistoryFromBank (the CV-seed path, which caps — see there) and experienceFromBank
-// (WorkHistory/Professional — fit-analysis scoring and the /me/profile API), and neither
-// of those readers should have evidence silently missing. A page's printable bullet
-// ceiling is a CV-document writer's concern, not a scoring or profile-read one.
 func publishableHighlights(atoms []Atom) (map[uuid.UUID][]string, []string) {
 	highlights := make(map[uuid.UUID][]string)
 	var placeless []string

@@ -169,10 +169,13 @@ endpoint is the explicit apply. Renamed from `reset-from-resume`: that name desc
 route once did (rebuild purely from the uploaded résumé's own extraction) before the seeder was
 changed to prefer the bank — "reseed" says what happens now without implying a single source.
 409 when the target is not tailored or the seed is unusable; a bank bucket over the bullet
-ceiling no longer refuses — `publishableHighlights` (`internal/candidate/experience/professional.go`)
-caps each bucket before the seed is built, keeping the most recently banked evidence, so the seed
-handed to `cv.Seed` is never over cap in the first place (see `internal/candidate/cvedit/AGENTS.md`
-for the write-side guard this keeps from ever firing on a reseed).
+ceiling no longer refuses — `Seed` (`seed.go`) caps every `Bullets` list at `MaxBullets`
+before a `Document` is ever built, keeping the most recently banked evidence, so what reaches
+`CommitDocument` is never over cap in the first place (see `internal/candidate/cvedit/AGENTS.md`
+for the write-side guard this keeps from ever firing on a reseed). Deliberately **not** capped
+in `internal/candidate/experience` itself: `WorkHistory`/`Professional` — fit-analysis scoring
+and `/me/profile` — read the same bank and must see every highlight, not a printable page's
+worth of the most recent ones.
 
 The tailored copy commits **before** the base refresh, not after: these are two separate
 `CommitDocument` calls, not one transaction, so ordering decides which one a mid-request

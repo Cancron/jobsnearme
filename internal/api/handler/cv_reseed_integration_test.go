@@ -485,17 +485,12 @@ func TestReseedCV_DoesNotChangeProfile(t *testing.T) {
 	}
 }
 
-// A bank role with more banked, publishable claims than cv.MaxBullets is exactly the seed
-// CommitDocument used to truncate silently (it sanitizes before diffing, so the refuse
-// guard never saw the overflow). Reset must refuse instead — and because the tailored
-// target now commits before the base refresh, a refusal must leave BOTH untouched rather
-// than a base already rewritten under a request that reports failure.
 // A bank employment growing past the bullet cap over years of real use used to dead-end
 // this route forever: the seed built from it was already over cv.MaxBullets, and
 // CommitDocument's cap guard refused the whole write on every retry, with no user-facing
-// recovery. publishableHighlights now caps each bucket at cv.MaxBullets before the seed
-// is ever built (internal/candidate/experience/professional.go), keeping the MOST
-// RECENTLY banked achievements — so this reseed must succeed, not refuse.
+// recovery. cv.Seed now caps every Bullets list at MaxBullets before a Document is ever
+// built (internal/candidate/cv/seed.go), keeping the MOST RECENTLY banked achievements —
+// so this reseed must succeed, not refuse, and must refresh the base CV too.
 func TestReseedCV_CapsAnOvercapBankBucketInsteadOfRefusing(t *testing.T) {
 	prevMax := cv.MaxBullets
 	cv.SetMaxBullets(20)
@@ -543,9 +538,10 @@ func TestReseedCV_CapsAnOvercapBankBucketInsteadOfRefusing(t *testing.T) {
 	}
 
 	store := h.cvStore
-	if _, err := store.Create(ctx, userID, "My CV", cv.DefaultTemplateID, cv.Document{
+	base, err := store.Create(ctx, userID, "My CV", cv.DefaultTemplateID, cv.Document{
 		Header: cv.Header{FullName: "Old Base"}, Summary: "old base summary",
-	}); err != nil {
+	})
+	if err != nil {
 		t.Fatalf("create base: %v", err)
 	}
 	jobID := seedJobSlug(t, pool, "overcap-reset-job")
@@ -581,6 +577,22 @@ func TestReseedCV_CapsAnOvercapBankBucketInsteadOfRefusing(t *testing.T) {
 	last := fmt.Sprintf("Banked achievement %d", cv.MaxBullets+1)
 	if got := bullets[len(bullets)-1]; got != last {
 		t.Errorf("last surviving bullet = %q, want %q — the most recently banked", got, last)
+	}
+
+	// ReseedCV refreshes the base from the same seed after the tailored target commits —
+	// it must carry the same capped, most-recent bullets, not the pre-reseed "Old Base".
+	gotBase, ok, err := store.BaseCV(ctx, userID)
+	if err != nil || !ok {
+		t.Fatalf("BaseCV: ok=%v err=%v", ok, err)
+	}
+	if gotBase.ID != base.ID {
+		t.Fatalf("base id = %s, want %s (refreshed in place, not replaced)", gotBase.ID, base.ID)
+	}
+	if len(gotBase.Document.Experience) != 1 || len(gotBase.Document.Experience[0].Bullets) != cv.MaxBullets {
+		t.Fatalf("base experience = %+v, want one row capped at %d", gotBase.Document.Experience, cv.MaxBullets)
+	}
+	if got := gotBase.Document.Experience[0].Bullets[0]; got != "Banked achievement 2" {
+		t.Errorf("base's first surviving bullet = %q, want the oldest one dropped", got)
 	}
 }
 

@@ -35,7 +35,7 @@ func (h *cvHandlers) ReseedCV(c *fiber.Ctx) error {
 		return mapCVError(err)
 	}
 	if !rec.IsTailored {
-		return fiber.NewError(fiber.StatusConflict, "reset from résumé is only for a tailored CV")
+		return fiber.NewError(fiber.StatusConflict, "reseed is only for a tailored CV")
 	}
 
 	st, ok, err := h.seedSource().Structured(c.Context(), userID)
@@ -47,7 +47,7 @@ func (h *cvHandlers) ReseedCV(c *fiber.Ctx) error {
 		// alone — candidate-owned contacts with no résumé ever uploaded and no bank
 		// rows. This is a destructive whole-document replace of an EXISTING CV, unlike
 		// first-time tailor bootstrap: identity alone is not reason enough to wipe it.
-		return fiber.NewError(fiber.StatusConflict, "add a résumé before resetting from it")
+		return fiber.NewError(fiber.StatusConflict, "add a résumé before reseeding")
 	}
 	seeded := cv.Seed(st)
 
@@ -107,7 +107,7 @@ func (h *cvHandlers) ReseedBaseCV(c *fiber.Ctx) error {
 		return err
 	}
 	if !ok || !hasSeedBody(st) {
-		return fiber.NewError(fiber.StatusConflict, "add a résumé before resetting from it")
+		return fiber.NewError(fiber.StatusConflict, "add a résumé before reseeding")
 	}
 	if err := h.reseedBaseFromSeed(c, userID, cv.Seed(st)); err != nil {
 		return err

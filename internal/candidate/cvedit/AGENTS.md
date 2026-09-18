@@ -182,11 +182,14 @@ protecting PUT /me/cvs/:id and Reseed while still working for cv_edit —
 employment's banked achievements, or the placeless bucket for evidence with no employment)
 had no cap of its own, so a role banked past 20 achievements over years of real use built a
 seed that was already over the ceiling — and since Reseed rebuilds that SAME seed on every
-call, the refusal was permanent, with no self-service recovery. `publishableHighlights`
-(`internal/candidate/experience/professional.go`) now caps every bucket at `cv.MaxBullets`
-before the seed is ever built, keeping the most recently banked evidence. The guard above is
-still correct and still fires for other over-cap documents (a pasted document, or one grown
-past the cap through `cv_edit` inserts) — this only closes the one path that had no way out.
+call, the refusal was permanent, with no self-service recovery. `cv.Seed`
+(`internal/candidate/cv/seed.go`) now caps every `Bullets` list at `cv.MaxBullets` before a
+`Document` is ever built, keeping the most recently banked evidence — deliberately not in
+`internal/candidate/experience`'s own bank projection, whose other reader (`WorkHistory` /
+`Professional` — fit-analysis scoring, `/me/profile`) must keep seeing every highlight. The
+guard above is still correct and still fires for other over-cap documents (a pasted document,
+or one grown past the cap through `cv_edit` inserts) — this only closes the one path that had
+no way out.
 
 Sibling Sanitize `limit()`s — experience/education/skills/languages/projects/certifications
 counts, skill items, links — still drop trailing entries silently. Extending refuse to those

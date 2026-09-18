@@ -227,19 +227,6 @@ func limit[T any](s []T, n int) []T {
 	return s
 }
 
-// mostRecent returns at most n elements of s, keeping the LAST n rather than the
-// first. limit's head-slice is right for a list already in the order its author
-// intends to keep (a CV's own bullets, an atom's own metrics); a bank bucket instead
-// accumulates oldest-first with no confidence signal to rank on (see publishableHighlights),
-// so the tail is what the candidate most recently confirmed — the direction that
-// matters when a bucket has to be cut down to a printable ceiling.
-func mostRecent[T any](s []T, n int) []T {
-	if len(s) > n {
-		return s[len(s)-n:]
-	}
-	return s
-}
-
 // mapStrings clips each string to max runes.
 func mapStrings(in []string, max int) []string {
 	out := make([]string, len(in))

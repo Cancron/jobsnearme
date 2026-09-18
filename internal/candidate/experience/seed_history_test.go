@@ -1,12 +1,9 @@
 package experience
 
 import (
-	"fmt"
 	"testing"
 
 	"github.com/google/uuid"
-
-	"github.com/strelov1/freehire/internal/candidate/cv"
 )
 
 func TestSeedHistoryFromBankSplitsJobsAndProjects(t *testing.T) {
@@ -114,87 +111,6 @@ func TestSeedHistoryProjectWithoutPublishableAtomsStillListed(t *testing.T) {
 	}
 	if len(got.Projects[0].Highlights) != 0 {
 		t.Errorf("highlights = %+v, want none from agent_inferred", got.Projects[0].Highlights)
-	}
-}
-
-// The bug this PR fixed: a long-tenured role banking more achievements over the years
-// than cv.MaxBullets meant "reset base CV from résumé" refused forever, since the seed
-// it built was already over the ceiling cvedit's write gate enforces. Capping here, and
-// keeping the MOST RECENT claims (atoms arrive oldest-created first, see
-// publishableHighlights), is what closes that dead end.
-func TestSeedHistoryFromBankCapsAnEmploymentBucketAtMaxBullets(t *testing.T) {
-	jobID := uuid.New()
-	const extra = 5
-	total := cv.MaxBullets + extra
-	atoms := make([]Atom, total)
-	for i := range atoms {
-		// Oldest first, matching ListExperienceAtoms' ORDER BY created_at — claim i is
-		// older than claim i+1.
-		atoms[i] = Atom{EmploymentID: &jobID, Claim: fmt.Sprintf("claim %d", i), Provenance: ProvenanceCVImport}
-	}
-
-	got := seedHistoryFromBank([]Employment{{ID: jobID, Kind: KindJob, Company: "Acme"}}, atoms)
-
-	if len(got.Experience) != 1 {
-		t.Fatalf("experience = %+v, want one row", got.Experience)
-	}
-	highlights := got.Experience[0].Highlights
-	if len(highlights) != cv.MaxBullets {
-		t.Fatalf("highlights = %d, want capped at %d", len(highlights), cv.MaxBullets)
-	}
-	if highlights[0] != fmt.Sprintf("claim %d", extra) {
-		t.Errorf("first surviving highlight = %q, want the oldest DROPPED — kept ones should start at claim %d", highlights[0], extra)
-	}
-	if last := highlights[len(highlights)-1]; last != fmt.Sprintf("claim %d", total-1) {
-		t.Errorf("last surviving highlight = %q, want the most recently added claim", last)
-	}
-}
-
-// The placeless bucket is not special-cased in the bucketing loop, so it needs the same
-// cap — this is the exact shape of the bug found via freehire.me/api/v1/me/cvs/base/reseed
-// (a member with a company-less employment history, reported as "experience[9]").
-func TestSeedHistoryFromBankCapsThePlacelessBucketAtMaxBullets(t *testing.T) {
-	const extra = 3
-	total := cv.MaxBullets + extra
-	atoms := make([]Atom, total)
-	for i := range atoms {
-		atoms[i] = Atom{Claim: fmt.Sprintf("placeless claim %d", i), Provenance: ProvenanceStatedInChat}
-	}
-
-	got := seedHistoryFromBank(nil, atoms)
-
-	if len(got.Experience) != 1 {
-		t.Fatalf("experience = %+v, want the one placeless entry", got.Experience)
-	}
-	highlights := got.Experience[0].Highlights
-	if len(highlights) != cv.MaxBullets {
-		t.Fatalf("placeless highlights = %d, want capped at %d", len(highlights), cv.MaxBullets)
-	}
-	if last := highlights[len(highlights)-1]; last != fmt.Sprintf("placeless claim %d", total-1) {
-		t.Errorf("last surviving placeless highlight = %q, want the most recently added claim", last)
-	}
-}
-
-// experienceFromBank (WorkHistory/Professional — fit-analysis scoring, /me/profile) must
-// NOT cap: seedHistoryFromBank's cap exists for a printable CV page, and applying it here
-// too would silently drop evidence from what a candidate is matched against and reads
-// back about themselves. This is the regression the CV-seed bullet-cap fix risked if the
-// cap had landed in the shared publishableHighlights instead of seedHistoryFromBank alone.
-func TestWorkHistoryFromBankDoesNotCapAnEmploymentBucket(t *testing.T) {
-	jobID := uuid.New()
-	total := cv.MaxBullets + 5
-	atoms := make([]Atom, total)
-	for i := range atoms {
-		atoms[i] = Atom{EmploymentID: &jobID, Claim: fmt.Sprintf("claim %d", i), Provenance: ProvenanceCVImport}
-	}
-
-	flat := experienceFromBank([]Employment{{ID: jobID, Kind: KindJob, Company: "Acme"}}, atoms)
-
-	if len(flat) != 1 {
-		t.Fatalf("experience = %+v, want one row", flat)
-	}
-	if len(flat[0].Highlights) != total {
-		t.Fatalf("highlights = %d, want every banked achievement (%d), uncapped", len(flat[0].Highlights), total)
 	}
 }
 
