@@ -191,39 +191,17 @@ LIMIT 500
 `
 
 type ListPendingSubmissionsRow struct {
-	ID             int64              `json:"id"`
-	SubmittedBy    int64              `json:"submitted_by"`
-	URL            string             `json:"url"`
-	Source         string             `json:"source"`
-	Title          string             `json:"title"`
-	Company        string             `json:"company"`
-	Location       string             `json:"location"`
-	Remote         bool               `json:"remote"`
-	Description    string             `json:"description"`
-	PostedAt       pgtype.Timestamptz `json:"posted_at"`
-	Status         string             `json:"status"`
-	ReviewReason   string             `json:"review_reason"`
-	ReviewedBy     pgtype.Int8        `json:"reviewed_by"`
-	ReviewedAt     pgtype.Timestamptz `json:"reviewed_at"`
-	JobID          pgtype.Int8        `json:"job_id"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	Skills         []string           `json:"skills"`
-	Regions        []string           `json:"regions"`
-	Cities         []string           `json:"cities"`
-	WorkMode       string             `json:"work_mode"`
-	SalaryMin      pgtype.Int4        `json:"salary_min"`
-	SalaryMax      pgtype.Int4        `json:"salary_max"`
-	SalaryCurrency string             `json:"salary_currency"`
-	SalaryPeriod   string             `json:"salary_period"`
-	EmploymentType string             `json:"employment_type"`
-	Seniority      string             `json:"seniority"`
-	SubmitterEmail string             `json:"submitter_email"`
+	JobSubmission  JobSubmission `json:"job_submission"`
+	SubmitterEmail string        `json:"submitter_email"`
 }
 
 // The moderator review queue: pending submissions, newest first, with the submitter's
 // email so the moderator can judge provenance. Capped at 500 as a runaway-growth
 // guard — far above any plausible backlog; a queue that deep needs bulk triage,
 // not a longer page.
+// sqlc.embed keeps the submission row as one db.JobSubmission instead of a flat row type
+// unrelated to it, so the adapter maps it once (fromRow) rather than re-assembling it here
+// (see mentorship.sql's ListBookingsByMentor for the same shape).
 func (q *Queries) ListPendingSubmissions(ctx context.Context) ([]ListPendingSubmissionsRow, error) {
 	rows, err := q.db.Query(ctx, listPendingSubmissions)
 	if err != nil {
@@ -234,32 +212,32 @@ func (q *Queries) ListPendingSubmissions(ctx context.Context) ([]ListPendingSubm
 	for rows.Next() {
 		var i ListPendingSubmissionsRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.SubmittedBy,
-			&i.URL,
-			&i.Source,
-			&i.Title,
-			&i.Company,
-			&i.Location,
-			&i.Remote,
-			&i.Description,
-			&i.PostedAt,
-			&i.Status,
-			&i.ReviewReason,
-			&i.ReviewedBy,
-			&i.ReviewedAt,
-			&i.JobID,
-			&i.CreatedAt,
-			&i.Skills,
-			&i.Regions,
-			&i.Cities,
-			&i.WorkMode,
-			&i.SalaryMin,
-			&i.SalaryMax,
-			&i.SalaryCurrency,
-			&i.SalaryPeriod,
-			&i.EmploymentType,
-			&i.Seniority,
+			&i.JobSubmission.ID,
+			&i.JobSubmission.SubmittedBy,
+			&i.JobSubmission.URL,
+			&i.JobSubmission.Source,
+			&i.JobSubmission.Title,
+			&i.JobSubmission.Company,
+			&i.JobSubmission.Location,
+			&i.JobSubmission.Remote,
+			&i.JobSubmission.Description,
+			&i.JobSubmission.PostedAt,
+			&i.JobSubmission.Status,
+			&i.JobSubmission.ReviewReason,
+			&i.JobSubmission.ReviewedBy,
+			&i.JobSubmission.ReviewedAt,
+			&i.JobSubmission.JobID,
+			&i.JobSubmission.CreatedAt,
+			&i.JobSubmission.Skills,
+			&i.JobSubmission.Regions,
+			&i.JobSubmission.Cities,
+			&i.JobSubmission.WorkMode,
+			&i.JobSubmission.SalaryMin,
+			&i.JobSubmission.SalaryMax,
+			&i.JobSubmission.SalaryCurrency,
+			&i.JobSubmission.SalaryPeriod,
+			&i.JobSubmission.EmploymentType,
+			&i.JobSubmission.Seniority,
 			&i.SubmitterEmail,
 		); err != nil {
 			return nil, err
@@ -281,38 +259,14 @@ ORDER BY s.created_at DESC
 `
 
 type ListSubmissionsByUserRow struct {
-	ID             int64              `json:"id"`
-	SubmittedBy    int64              `json:"submitted_by"`
-	URL            string             `json:"url"`
-	Source         string             `json:"source"`
-	Title          string             `json:"title"`
-	Company        string             `json:"company"`
-	Location       string             `json:"location"`
-	Remote         bool               `json:"remote"`
-	Description    string             `json:"description"`
-	PostedAt       pgtype.Timestamptz `json:"posted_at"`
-	Status         string             `json:"status"`
-	ReviewReason   string             `json:"review_reason"`
-	ReviewedBy     pgtype.Int8        `json:"reviewed_by"`
-	ReviewedAt     pgtype.Timestamptz `json:"reviewed_at"`
-	JobID          pgtype.Int8        `json:"job_id"`
-	CreatedAt      pgtype.Timestamptz `json:"created_at"`
-	Skills         []string           `json:"skills"`
-	Regions        []string           `json:"regions"`
-	Cities         []string           `json:"cities"`
-	WorkMode       string             `json:"work_mode"`
-	SalaryMin      pgtype.Int4        `json:"salary_min"`
-	SalaryMax      pgtype.Int4        `json:"salary_max"`
-	SalaryCurrency string             `json:"salary_currency"`
-	SalaryPeriod   string             `json:"salary_period"`
-	EmploymentType string             `json:"employment_type"`
-	Seniority      string             `json:"seniority"`
-	JobSlug        pgtype.Text        `json:"job_slug"`
+	JobSubmission JobSubmission `json:"job_submission"`
+	JobSlug       pgtype.Text   `json:"job_slug"`
 }
 
 // "My submissions": one user's submissions, newest first, whatever their status.
 // LEFT JOIN the minted job (present only once approved) to surface its public_slug,
 // so the UI can link an approved submission straight to its live vacancy page.
+// sqlc.embed, see ListPendingSubmissions above.
 func (q *Queries) ListSubmissionsByUser(ctx context.Context, submittedBy int64) ([]ListSubmissionsByUserRow, error) {
 	rows, err := q.db.Query(ctx, listSubmissionsByUser, submittedBy)
 	if err != nil {
@@ -323,32 +277,32 @@ func (q *Queries) ListSubmissionsByUser(ctx context.Context, submittedBy int64) 
 	for rows.Next() {
 		var i ListSubmissionsByUserRow
 		if err := rows.Scan(
-			&i.ID,
-			&i.SubmittedBy,
-			&i.URL,
-			&i.Source,
-			&i.Title,
-			&i.Company,
-			&i.Location,
-			&i.Remote,
-			&i.Description,
-			&i.PostedAt,
-			&i.Status,
-			&i.ReviewReason,
-			&i.ReviewedBy,
-			&i.ReviewedAt,
-			&i.JobID,
-			&i.CreatedAt,
-			&i.Skills,
-			&i.Regions,
-			&i.Cities,
-			&i.WorkMode,
-			&i.SalaryMin,
-			&i.SalaryMax,
-			&i.SalaryCurrency,
-			&i.SalaryPeriod,
-			&i.EmploymentType,
-			&i.Seniority,
+			&i.JobSubmission.ID,
+			&i.JobSubmission.SubmittedBy,
+			&i.JobSubmission.URL,
+			&i.JobSubmission.Source,
+			&i.JobSubmission.Title,
+			&i.JobSubmission.Company,
+			&i.JobSubmission.Location,
+			&i.JobSubmission.Remote,
+			&i.JobSubmission.Description,
+			&i.JobSubmission.PostedAt,
+			&i.JobSubmission.Status,
+			&i.JobSubmission.ReviewReason,
+			&i.JobSubmission.ReviewedBy,
+			&i.JobSubmission.ReviewedAt,
+			&i.JobSubmission.JobID,
+			&i.JobSubmission.CreatedAt,
+			&i.JobSubmission.Skills,
+			&i.JobSubmission.Regions,
+			&i.JobSubmission.Cities,
+			&i.JobSubmission.WorkMode,
+			&i.JobSubmission.SalaryMin,
+			&i.JobSubmission.SalaryMax,
+			&i.JobSubmission.SalaryCurrency,
+			&i.JobSubmission.SalaryPeriod,
+			&i.JobSubmission.EmploymentType,
+			&i.JobSubmission.Seniority,
 			&i.JobSlug,
 		); err != nil {
 			return nil, err

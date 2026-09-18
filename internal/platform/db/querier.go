@@ -4074,6 +4074,9 @@ type Querier interface {
 	// email so the moderator can judge provenance. Capped at 500 as a runaway-growth
 	// guard — far above any plausible backlog; a queue that deep needs bulk triage,
 	// not a longer page.
+	// sqlc.embed keeps the submission row as one db.JobSubmission instead of a flat row type
+	// unrelated to it, so the adapter maps it once (fromRow) rather than re-assembling it here
+	// (see mentorship.sql's ListBookingsByMentor for the same shape).
 	ListPendingSubmissions(ctx context.Context) ([]ListPendingSubmissionsRow, error)
 	// The public directory. Every filter is optional and applied as "NULL means unfiltered",
 	// which keeps one query instead of a builder; the endpoint reports any parameter it did
@@ -4167,6 +4170,7 @@ type Querier interface {
 	// "My submissions": one user's submissions, newest first, whatever their status.
 	// LEFT JOIN the minted job (present only once approved) to surface its public_slug,
 	// so the UI can link an approved submission straight to its live vacancy page.
+	// sqlc.embed, see ListPendingSubmissions above.
 	ListSubmissionsByUser(ctx context.Context, submittedBy int64) ([]ListSubmissionsByUserRow, error)
 	// The reconciler's second pass for the store provider: accounts whose store entitlement
 	// expires inside a window around now, so a renewal whose webhook was never delivered is
