@@ -279,7 +279,9 @@ func All(c HTTPClient) map[string]Source {
 		NewGetro(c),
 		// Dover: boarded ATS (board = company slug), public JSON API with no bot protection on
 		// the data endpoints — only the browser apply-submission flow gates behind Turnstile.
-		NewDover(c),
+		// Paced (pacedDoverGetter): an unpaced multi-board run drew 22 429s from 31 boards
+		// within ~2s (see doverRequestInterval's incident note in pacer.go).
+		NewDover(pacedDoverGetter(c)),
 		NewJobylon(c),
 		NewWorkAtAStartup(c),
 		NewJobStash(c),
