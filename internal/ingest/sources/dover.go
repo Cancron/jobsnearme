@@ -5,8 +5,6 @@ import (
 	"fmt"
 	"log"
 	"strings"
-
-	"github.com/strelov1/freehire/internal/dict/vocab"
 )
 
 // doverBaseURL is the Dover public career-page API root, shared by all three endpoints this
@@ -94,14 +92,11 @@ func (s dover) FetchNew(ctx context.Context, e CompanyEntry, seen func(externalI
 	}), nil
 }
 
-// doverCareersPageSlugResponse is the slug-resolution response; only the client id matters here.
-type doverCareersPageSlugResponse struct {
-	ID string `json:"id"`
-}
-
 // resolveClientID resolves a board's Dover slug to the platform's internal client id.
 func (s dover) resolveClientID(ctx context.Context, slug string) (string, error) {
-	var resp doverCareersPageSlugResponse
+	var resp struct {
+		ID string `json:"id"`
+	}
 	url := fmt.Sprintf("%s/careers-page-slug/%s", doverBaseURL, slug)
 	if err := s.http.GetJSON(ctx, url, &resp); err != nil {
 		return "", fmt.Errorf("dover: resolve slug %s: %w", slug, err)
@@ -265,23 +260,18 @@ func (d doverDetailResponse) toJob(e CompanyEntry, url string) Job {
 // employment-type vocabulary, returning "" for an unset/unrecognized value so the description
 // parser decides — structured signal only, never a guess.
 func doverEmploymentType(t string) string {
-	var mapped string
 	switch t {
 	case "FULL_TIME":
-		mapped = "full_time"
+		return "full_time"
 	case "PART_TIME":
-		mapped = "part_time"
+		return "part_time"
 	case "CONTRACT", "TEMPORARY":
-		mapped = "contract"
+		return "contract"
 	case "INTERN", "INTERNSHIP":
-		mapped = "internship"
+		return "internship"
+	default:
+		return ""
 	}
-	for _, v := range vocab.EmploymentTypeValues {
-		if v == mapped {
-			return mapped
-		}
-	}
-	return ""
 }
 
 // doverDescriptionExtras renders the posting facts Job has no dedicated field for — equity
