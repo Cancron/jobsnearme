@@ -1041,6 +1041,130 @@ var categoryTable = []aliasEntry{
 	// above the bare "manager" so the unqualified title still resolves.
 	{"community manager", "marketing"},
 	{"комьюнити-менеджер", "marketing"},
+	// Health, safety and environment. The block sits here, above the bare "manager"
+	// fall-through, because that one line is what the profession was losing to: measured
+	// on prod 2026-09-24, 1,454 live postings carrying an HSE acronym resolved
+	// `management` on the strength of the word "Manager" alone, filing an EHS Manager
+	// beside a Sales Manager. Another 4,515 resolved nothing at all.
+	//
+	// SOC codes EHS Managers separately from its 19-5011 specialists. This table
+	// deliberately does not: `seniority` is its own facet here, so splitting one
+	// profession across two category values would make a subscriber tick two boxes to
+	// see one job market.
+	//
+	// First, the qualifiers that put the word "safety" in a title naming a DIFFERENT
+	// profession. Without them the qualified "safety <role>" aliases below claim roughly
+	// 2,300 live postings that are not this craft — food 616, public 843, patient 481,
+	// product 163, campus 157 on 2026-09-24 — plus the tech-native families further down.
+	//
+	// Each ROUTES to the category that is true rather than carrying the blind sentinel,
+	// because the rule at the top of this file says so and a review found the first
+	// draft breaking it: a blanket `patient safety` sentinel blanked "Patient Safety
+	// Registered Nurse" from `healthcare`, and `product safety` blanked "Product Safety
+	// Engineer" from `industrial_engineering` — making a facet unreachable, which is the
+	// harm this whole change exists to undo. The sentinel is left only where no category
+	// is true.
+	{"patient safety", "healthcare"},
+	{"drug safety", "healthcare"}, // pharmacovigilance, the sibling of patient safety
+	{"product safety", "industrial_engineering"},
+	{"food safety", "industrial_engineering"},       // plant quality, where `quality engineer` already sits
+	{"functional safety", "industrial_engineering"}, // ISO 26262, automotive and semiconductor
+	{"life safety", "skilled_trades"},               // fire alarm and sprinkler trades
+	{"ai safety", "ml_ai"},                          // alignment research, not a safety department
+	// Protective services. This catalogue has no category for them, so these keep the
+	// blind sentinel — and they are narrowed to the role noun the HSE block would
+	// otherwise steal, so "Public Safety Dispatcher" keeps the `logistics` it resolves on
+	// its own.
+	{"public safety officer", categoryNone},
+	{"campus safety officer", categoryNone},
+	{"school safety officer", categoryNone},
+	{"pool safety officer", categoryNone},
+	// Trust & Safety is platform integrity at a consumer-tech employer — the most likely
+	// "safety" collision on an IT job board, and the one the first draft missed entirely.
+	// It carries the sentinel rather than a route because no category here is true for it:
+	// it is neither `operations` nor `support` nor this craft, and guessing one would be
+	// the same mistake as filing it under HSE.
+	{"trust and safety", categoryNone},
+	{"trust & safety", categoryNone},
+	// "fire safety" is deliberately NOT in this list. It is a genuine part of the HSE
+	// remit on an industrial site, and 164 postings is too few to be worth splitting the
+	// building-warden reading out of.
+	// The acronyms resolve bare. Each is a coined initialism with no English-word
+	// collision, unlike the two words below them.
+	{"hse", "occupational_safety"},
+	{"ehs", "occupational_safety"},
+	{"hsse", "occupational_safety"},
+	{"qhse", "occupational_safety"},
+	{"hseq", "occupational_safety"},
+	{"sheq", "occupational_safety"},
+	{"shes", "occupational_safety"},
+	// "SHE" is NOT here bare, and that is the one exclusion in this block with a
+	// live-title reason rather than a dictionary one: it is an ordinary English word and
+	// a pronoun that postings carry ("Software Engineer (she/her)"). Only the qualified
+	// spellings, the same treatment bare "security" and bare "mobile" already get.
+	{"she manager", "occupational_safety"},
+	{"she officer", "occupational_safety"},
+	{"she advisor", "occupational_safety"},
+	{"she coordinator", "occupational_safety"},
+	{"she specialist", "occupational_safety"},
+	// The spelled-out forms. "environmental health and safety" and "occupational health
+	// and safety" need no entry of their own — both contain "health and safety", and the
+	// matcher is word-boundary based. The ampersand spelling does need one: it is a
+	// different string, not a different boundary.
+	{"health and safety", "occupational_safety"},
+	{"health & safety", "occupational_safety"},
+	// Russian. `internal/dict/classify`'s non-tech term list already carries "охрана
+	// труда"/"охране труда", which is why these titles were being turned away at ingest
+	// and hard-deleted rather than merely going uncategorised — see ConfirmedNonTech.
+	// All three cases, because Russian titles inflect the phrase and the matcher does
+	// not: "Специалист в области охраны труда" (112 live) is genitive, "Инженер по
+	// охране труда" is dative, "Охрана труда" is nominative. The corpus probe found the
+	// genitive; the hand-written list had only the other two.
+	//
+	// Note how narrow these are. The same corpus carries hundreds of postings for bare
+	// "охрана" — "младший инспектор отдела охраны", "государственный инспектор по охране
+	// леса" — which are security guards and forest rangers, not this profession. Only
+	// the two-word phrase is admitted.
+	{"охрана труда", "occupational_safety"},
+	{"охране труда", "occupational_safety"},
+	{"охраны труда", "occupational_safety"},
+	// The titles SOC lists as reported for 19-5011, in the spellings prod carries, with
+	// live counts. Bare "safety" is deliberately NOT an alias: it names patient safety
+	// in healthcare, campus and public safety in protective services and food safety in
+	// manufacturing quality, and these qualified forms cover the population without it.
+	{"safety coordinator", "occupational_safety"}, // 283
+	{"safety specialist", "occupational_safety"},  // 278
+	{"safety officer", "occupational_safety"},     // 130
+	{"safety technician", "occupational_safety"},  // 67
+	{"safety supervisor", "occupational_safety"},  // 55
+	{"safety advisor", "occupational_safety"},     // 42
+	{"safety director", "occupational_safety"},    // 34
+	{"safety manager", "occupational_safety"},     // 1,649 once the qualifiers above are excluded
+	{"safety lead", "occupational_safety"},        //
+	// Added after the corpus probe, which is the only thing that could have found them:
+	// a test written from the list above can only confirm the list. Counts are live.
+	{"safety administrator", "occupational_safety"},  // 24
+	{"safety professional", "occupational_safety"},   // 23
+	{"director of safety", "occupational_safety"},    // 20; the inverted form of "safety director"
+	{"head of safety", "occupational_safety"},        //
+	{"safety trainer", "occupational_safety"},        // 20
+	{"safety intern", "occupational_safety"},         // 18
+	{"safety representative", "occupational_safety"}, // 18
+	{"safety inspector", "occupational_safety"},      // 14
+	// The Singapore and site-officer spellings, which name the whole discipline between
+	// the two words the qualified aliases above expect to be adjacent.
+	{"workplace safety and health", "occupational_safety"}, // 25 across its spellings
+	{"workplace safety & health", "occupational_safety"},
+	{"safety and health officer", "occupational_safety"}, // 10, "Site Safety and Health Officer"
+	{"safety & health officer", "occupational_safety"},
+	{"industrial hygienist", "occupational_safety"}, // named in SOC's reported-title list
+	{"industrial hygiene", "occupational_safety"},
+	{"risk control consultant", "occupational_safety"},
+	// Bare "risk" is NOT an alias. It matched 41,468 live postings and most of them are
+	// finance — "Risk Analyst", "Credit Risk Manager" — which is a different profession
+	// that happens to share a word, and which already resolves correctly elsewhere.
+	{"hse risk", "occupational_safety"},
+	{"safety risk", "occupational_safety"},
 	// Bare "manager" resolves last so a functional prefix wins ("Sales Manager"
 	// → sales, "Operations Manager" → operations, "Finance Manager" → finance); a
 	// manager title with no recognized function falls through to management.
@@ -1665,7 +1789,17 @@ var categoryTable = []aliasEntry{
 	{"plant engineer", "industrial_engineering"},
 	{"facilities engineer", "industrial_engineering"},
 	{"building engineer", "industrial_engineering"},
-	{"safety engineer", "industrial_engineering"},
+	// "Safety Engineer" is the HSE profession, not the plant seat around it — SOC's own
+	// reported-title list for 19-5011 names it.
+	//
+	// It stays at this position because that is where it already was, not because the
+	// position does anything: an earlier draft of this comment claimed moving it up would
+	// take "Software Safety Engineer" away from `software_engineering`, and that was
+	// simply false. The matcher takes contiguous phrases, so "software safety engineer"
+	// never contained "software engineer" and resolved here either way. Verify a claim
+	// like that against the matcher before writing it down — a reader trusts the comment
+	// over the code.
+	{"safety engineer", "occupational_safety"},
 	{"environmental engineer", "industrial_engineering"},
 	{"geotechnical engineer", "industrial_engineering"},
 	{"planning engineer", "industrial_engineering"},
