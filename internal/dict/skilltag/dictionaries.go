@@ -150,6 +150,7 @@ var wordAliases = map[string]string{
 	"dynamodb":      "dynamodb",
 	"elasticsearch": "elasticsearch",
 	"clickhouse":    "clickhouse",
+	"duckdb":        "duckdb",
 	"snowflake":     "snowflake",
 	"cockroachdb":   "cockroachdb",
 	"scylladb":      "scylladb",
@@ -278,6 +279,11 @@ var wordAliases = map[string]string{
 	"mistral":   "mistral",
 	"ollama":    "ollama",
 	"vllm":      "vllm",
+	"deepseek":  "deepseek",
+	"dspy":      "dspy",
+	"litellm":   "litellm",
+	"sglang":    "sglang",
+	"mastra":    "mastra",
 	"tensorrt":  "tensorrt",
 	"triton":    "triton",
 	"onnx":      "onnx",
@@ -331,6 +337,7 @@ var wordAliases = map[string]string{
 	"salesforce": "salesforce",
 	"sap":        "sap",
 	"oracle":     "oracle",
+	"odoo":       "odoo",
 
 	// LLM-mined gaps: high-frequency tokens the enrichment discovery signal emitted
 	// (jobs.enrichment->skills) that the seed list lacked. Only distinctive tokens are
@@ -1511,6 +1518,10 @@ var engineeringPhraseAliases = []phraseAlias{
 	{"microsoft copilot", "microsoft-copilot"}, {"copilot studio", "microsoft-copilot"},
 	{"google gemini", "gemini"}, {"gemini api", "gemini"},
 	{"anthropic claude", "claude"}, {"claude api", "claude"},
+	{"deep seek", "deepseek"},
+	{"lite llm", "litellm"},
+	{"sg lang", "sglang"},
+	{"duck db", "duckdb"},
 	// batch 5 (2026-10 enrichment mining). Multi-word product and practice names.
 	// Each phrase emits its canonical BESIDE whatever word its parts already tag
 	// ("api gateway" still tags api) — phrases do not consume text.

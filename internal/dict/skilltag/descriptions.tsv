@@ -1109,3 +1109,10 @@ nmbrs	Nmbrs is Dutch cloud software for payroll and HR administration.
 youforce	Youforce is Visma Raet's HR and payroll platform, common in Dutch public-sector and care organisations.
 nis2	NIS2 is the EU directive that sets cybersecurity risk-management and incident-reporting duties for essential and important entities.
 nen-7510	NEN 7510 is the Dutch standard for information security in healthcare, built on ISO 27001.
+deepseek	DeepSeek is an open-weights artificial intelligence model family and inference architecture optimized for code generation and reasoning.
+dspy	DSPy is a framework from Stanford for programmatically optimizing prompt pipelines and weights in foundation model applications.
+duckdb	DuckDB is an in-process SQL OLAP database management system designed for fast analytical queries on columnar data.
+litellm	LiteLLM is an open-source proxy and SDK that provides a unified OpenAI-compatible interface across 100+ LLM providers.
+mastra	Mastra is an open-source TypeScript agent framework for building autonomous AI workflows, tool integrations, and evals.
+odoo	Odoo is an open-source suite of enterprise management applications covering ERP, CRM, accounting, inventory, and point of sale.
+sglang	SGLang is an open-source inference engine and structured generation runtime for serving large language models at high throughput.

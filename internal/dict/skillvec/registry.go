@@ -1107,4 +1107,11 @@ var registry = []string{
 	"togaf",
 	"topdesk",
 	"youforce",
+	"deepseek",
+	"dspy",
+	"duckdb",
+	"litellm",
+	"mastra",
+	"odoo",
+	"sglang",
 }
