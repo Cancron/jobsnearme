@@ -46,7 +46,8 @@ func TestEveryCompanySlugWriteAlsoWritesTheFoldedColumn(t *testing.T) {
 			// Judge the SQL, not the prose around it. A statement whose comment merely
 			// MENTIONS the folded column ("company_slug_folded is written below", or a
 			// TODO to write it) satisfied this check while leaving the column unwritten —
-			// which is precisely the silent failure the rule exists to prevent.
+			// which is precisely the silent failure the rule exists to prevent. Block
+			// comments count as prose too.
 			body := stripSQLComments(stmt.body)
 			if !writesJobsCompanySlug(body) {
 				continue
@@ -95,6 +96,30 @@ func TestAssignsCompanySlugInSetClause(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			if got := assignsCompanySlugInSetClause(tc.sql); got != tc.want {
 				t.Errorf("assignsCompanySlugInSetClause(%q) = %v, want %v", tc.sql, got, tc.want)
+			}
+		})
+	}
+}
+
+// A mention of the folded column inside a comment must not count as writing it, whichever
+// comment syntax carries the mention — and stripping one syntax must never eat real SQL.
+func TestStripSQLComments(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		sql  string
+		want string
+	}{
+		{"line comment", "set company_slug = $1 -- company_slug_folded later", "set company_slug = $1 "},
+		{"block comment", "set company_slug = $1 /* company_slug_folded later */, title = $2", "set company_slug = $1  , title = $2"},
+		{"block comment across lines", "set company_slug = $1 /* TODO\ncompany_slug_folded */\nwhere id = $2", "set company_slug = $1  \nwhere id = $2"},
+		{"two block comments", "a /* x */ b /* y */ c", "a   b   c"},
+		{"a comment between tokens keeps them apart", "update jobs/* note */set company_slug = $1", "update jobs set company_slug = $1"},
+		{"a line comment holding /* does not start a block", "-- see /api/v1/insights/*\nset title = $1 */ x", "\nset title = $1 */ x"},
+		{"an unterminated block is left alone", "set title = $1 /* company_slug_folded", "set title = $1 /* company_slug_folded"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := stripSQLComments(tc.sql); got != tc.want {
+				t.Errorf("stripSQLComments(%q) = %q, want %q", tc.sql, got, tc.want)
 			}
 		})
 	}
@@ -196,10 +221,13 @@ func assignmentOffsets(set, column string) []int {
 	}
 }
 
-// stripSQLComments drops `-- …` line comments from a statement so the rule reads the SQL and
-// not the commentary. A `--` inside a string literal would be cut too; no query here holds
-// one, and the failure direction is safe — a statement would look like it writes LESS than it
-// does, which errs toward reporting a violation rather than hiding one.
+// stripSQLComments drops `-- …` line comments and `/* … */` block comments from a statement so
+// the rule reads the SQL and not the commentary. Line comments go first: a line comment may
+// itself contain `/*` (an endpoint path like `/api/v1/insights/*`), and reading that as the
+// start of a block comment would cut real SQL up to the next `*/`. A `--` or `/*` inside a
+// string literal would be cut too; no query here holds one, and the failure direction is
+// safe — a statement would look like it writes LESS than it does, which errs toward reporting
+// a violation rather than hiding one.
 func stripSQLComments(body string) string {
 	lines := strings.Split(body, "\n")
 	out := make([]string, 0, len(lines))
@@ -209,5 +237,23 @@ func stripSQLComments(body string) string {
 		}
 		out = append(out, line)
 	}
-	return strings.Join(out, "\n")
+	return stripBlockComments(strings.Join(out, "\n"))
+}
+
+// stripBlockComments replaces every `/* … */` in body with a space — the separator Postgres
+// itself reads it as, so `jobs/* note */SET` stays two tokens instead of becoming `jobsSET`
+// and hiding the SET clause. An unterminated `/*` is left as it is: Postgres rejects one, so
+// sqlc would never have compiled the statement in the first place.
+func stripBlockComments(body string) string {
+	for {
+		start := strings.Index(body, "/*")
+		if start < 0 {
+			return body
+		}
+		end := strings.Index(body[start+2:], "*/")
+		if end < 0 {
+			return body
+		}
+		body = body[:start] + " " + body[start+2+end+2:]
+	}
 }
