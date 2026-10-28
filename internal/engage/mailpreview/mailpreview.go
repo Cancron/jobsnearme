@@ -88,12 +88,14 @@ func Samples(baseURL string) ([]Sample, error) {
 // sender, so a sample is what production would send, not a hand-written copy of it.
 var renderers = []func(string) (Sample, error){
 	discordInviteSample,
+	interviewBuddiesSample,
 	welcomeSample,
 	advancedSearchSample,
 	noAlertSample,
 	extensionSample,
 	openSourceSample,
 	tailorSample,
+	buddiesSample,
 	verificationSample,
 	passwordResetSample,
 	emailChangeSample,
@@ -183,6 +185,11 @@ func discordInviteSample(baseURL string) (Sample, error) {
 		"discord-invite", baseURL)
 }
 
+func interviewBuddiesSample(baseURL string) (Sample, error) {
+	return campaignSample("campaign-interview-buddies", "Campaigns / Interview buddies",
+		"interview-buddies", baseURL)
+}
+
 // The signup sequence. Its Sender takes a Reply-To, which capture also satisfies —
 // these are the only mails that ask for an answer.
 func onboardingSample(name, title string, step onboarding.Step, baseURL string) (Sample, error) {
@@ -214,6 +221,10 @@ func openSourceSample(baseURL string) (Sample, error) {
 
 func tailorSample(baseURL string) (Sample, error) {
 	return onboardingSample("onboarding-tailor", "Onboarding / 6 · CV tailoring", onboarding.StepTailor, baseURL)
+}
+
+func buddiesSample(baseURL string) (Sample, error) {
+	return onboardingSample("onboarding-buddies", "Onboarding / 7 · Interview buddies", onboarding.StepBuddies, baseURL)
 }
 
 func verificationSample(baseURL string) (Sample, error) {
