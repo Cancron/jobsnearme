@@ -18,8 +18,11 @@ import (
 type freeworkFake struct {
 	listErr  error
 	laterErr error
-	// lastPage drops the fixture's "next" link, so page 1 is the whole listing.
-	lastPage bool
+	// fullFirst pads page 1 to a full page with postings that name no employer (dropped), so
+	// the walk asks for page 2 — which the API answers, past the end, with the last page again.
+	fullFirst bool
+	// laterNew makes page 2 a short page repeating one posting of page 1 beside a new one.
+	laterNew bool
 	// unpublished makes every posting resource answer a status other than "published".
 	unpublished bool
 
@@ -36,17 +39,23 @@ func (f *freeworkFake) GetJSON(_ context.Context, u string, v any) error {
 		if f.listErr != nil {
 			return f.listErr
 		}
-		if !strings.Contains(u, "?page=1&") {
-			if f.laterErr != nil {
-				return f.laterErr
-			}
-			return json.Unmarshal([]byte(`{"hydra:totalItems":4,"hydra:member":[],"hydra:view":{}}`), v)
+		if !strings.Contains(u, "?page=1&") && f.laterErr != nil {
+			return f.laterErr
 		}
 		if err := freeworkFixture("testdata/freework/list.json", v); err != nil {
 			return err
 		}
-		if f.lastPage {
-			v.(*freeworkPage).View.Next = ""
+		cards := v.(*[]freeworkCard)
+		if f.fullFirst {
+			for i := len(*cards); i < freeworkPageSize; i++ {
+				*cards = append(*cards, freeworkCard{ID: int64(i + 1), Slug: "pad", Title: "Pad"})
+			}
+		}
+		if f.laterNew && !strings.Contains(u, "?page=1&") {
+			// Page 2 repeats one posting of page 1 and names one of its own.
+			later := (*cards)[0]
+			later.ID, later.Slug = 700001, "later-posting"
+			*cards = []freeworkCard{(*cards)[0], later}
 		}
 		return nil
 	}
@@ -196,13 +205,25 @@ func TestFreeWorkBudgetDefersTheRest(t *testing.T) {
 	}
 }
 
-func TestFreeWorkStopsAtTheLastPage(t *testing.T) {
-	f := &freeworkFake{lastPage: true, laterErr: errors.New("must not be asked")}
+func TestFreeWorkStopsAtAShortPage(t *testing.T) {
+	f := &freeworkFake{laterErr: errors.New("must not be asked")}
 	if _, err := newTestFreeWork(f).FetchNew(context.Background(), CompanyEntry{}, func(string) bool { return true }); err != nil {
 		t.Fatal(err)
 	}
 	if len(f.pages) != 1 {
-		t.Errorf("listing requests = %v, want one: the page carried no next link", f.pages)
+		t.Errorf("listing requests = %v, want one: the page was short", f.pages)
+	}
+}
+
+// Past the end the API answers the last page again; a page naming nothing new ends the walk.
+func TestFreeWorkStopsAtARepeatedPage(t *testing.T) {
+	f := &freeworkFake{fullFirst: true}
+	jobs, err := newTestFreeWork(f).FetchNew(context.Background(), CompanyEntry{}, func(string) bool { return true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(f.pages) != 2 || len(jobs) != 4 {
+		t.Errorf("listing requests = %d, jobs = %d; want two requests and the four named postings", len(f.pages), len(jobs))
 	}
 }
 
@@ -216,7 +237,7 @@ func TestFreeWorkListingFailureFailsTheCrawl(t *testing.T) {
 // A listing cut short must not pass for a whole one: the company-scoped sweep would close the
 // postings of the employers it saw on the pages it never read.
 func TestFreeWorkLaterListingFailureFailsTheCrawl(t *testing.T) {
-	f := &freeworkFake{laterErr: errors.New("502")}
+	f := &freeworkFake{fullFirst: true, laterErr: errors.New("502")}
 	if _, err := newTestFreeWork(f).FetchNew(context.Background(), CompanyEntry{}, func(string) bool { return false }); err == nil {
 		t.Fatal("a failed second listing page did not fail the crawl")
 	}
@@ -281,5 +302,21 @@ func TestFreeWorkMappings(t *testing.T) {
 		if got := freeworkEmploymentType(c.in); got != c.want {
 			t.Errorf("freeworkEmploymentType(%v) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// A later page's own postings are read, and a posting met on two pages is yielded once.
+func TestFreeWorkReadsALaterPage(t *testing.T) {
+	f := &freeworkFake{fullFirst: true, laterNew: true}
+	jobs, err := newTestFreeWork(f).FetchNew(context.Background(), CompanyEntry{}, func(string) bool { return true })
+	if err != nil {
+		t.Fatal(err)
+	}
+	ids := map[string]int{}
+	for _, j := range jobs {
+		ids[j.ExternalID]++
+	}
+	if len(f.pages) != 2 || ids["700001"] != 1 || ids["687964"] != 1 || len(jobs) != 5 {
+		t.Errorf("listing requests = %d, jobs = %v; want two requests, the four page-1 postings and the later one, each once", len(f.pages), ids)
 	}
 }
