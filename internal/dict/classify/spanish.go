@@ -306,6 +306,8 @@ var spanishCategoryTable = []aliasEntry{
 	{"albaniles", "skilled_trades"},
 	{"carpintero", "skilled_trades"},
 	{"soldador", "skilled_trades"},
+	{"plegador", "manufacturing"}, // the press-brake operator
+	{"plegadores", "manufacturing"},
 	{"soldadores", "skilled_trades"},
 	{"mecanico", "skilled_trades"},
 	{"electromecanico", "skilled_trades"},
@@ -338,6 +340,16 @@ var spanishCategoryTable = []aliasEntry{
 	{"bodeguero", "logistics"},
 	{"preparador de pedidos", "logistics"},
 	{"armador de pedidos", "logistics"},
+	// Argentina: the forklift driver is a "clarkista" (after Clark), the courier a
+	// "cadete", the customs broker a "despachante". The day labourer ("changarín") is
+	// absent: he loads lorries as often as he works a building site.
+	{"clarkista", "logistics"},
+	{"clarkistas", "logistics"},
+	{"cadete", "logistics"},
+	{"cadetes", "logistics"},
+	{"despachante de aduana", "logistics"},
+	{"despachante aduanero", "logistics"},
+	{"pickers", "logistics"}, // the main table's "picker", plural
 	{"conductor", "logistics"},
 	{"conductores", "logistics"},
 	{"chofer", "logistics"},
@@ -491,6 +503,13 @@ var spanishCategoryTable = []aliasEntry{
 	{"vendedor", "sales"}, // the main table's "sales associate"
 	{"vendedora", "sales"},
 	{"vendedores", "sales"},
+	// Argentina's pre-seller, who takes the shop's order before the delivery, and the
+	// in-store promoter who also sells.
+	{"preventista", "sales"},
+	{"preventistas", "sales"},
+	{"promovendedor", "sales"},
+	{"promovendedora", "sales"},
+	{"promovendedores", "sales"},
 	{"mercadotecnia", "marketing"},
 	{"publicidad", "marketing"},
 	{"redes sociales", "marketing"},
@@ -554,6 +573,10 @@ var spanishCategoryTable = []aliasEntry{
 	{"ingeniero comercial", categoryNone},
 	{"comercial", "sales"},
 	{"comerciales", "sales"},
+	// Argentina's housekeeper: a hotel's by default, but after the fields, so "Mucama de
+	// limpieza en casa particular" is the cleaner the field names.
+	{"mucama", "hospitality"},
+	{"mucamas", "hospitality"},
 	{"administrativo", "administration"},
 	{"administrativa", "administration"},
 	{"administrativos", "administration"},
@@ -628,6 +651,8 @@ func matchSpanishCategory(lower string) string {
 // and "coordinator" state none in the main table. A plain "director" is left alone for
 // the same reason; only the general, executive and financial directors are the board.
 var spanishSeniorityTable = []aliasEntry{
+	// Argentina's "Gerente General" is the general manager, the executive.
+	{"gerente general", "c_level"},
 	{"director general", "c_level"},
 	{"directora general", "c_level"},
 	{"director ejecutivo", "c_level"},
@@ -668,9 +693,16 @@ var spanishSeniorityTable = []aliasEntry{
 // obra", "Adjunto al jefe de tienda", "Subjefe de turno", "Segundo jefe", "Asistente del
 // Director General", "Secretaria de dirección general" — which states no grade of its own.
 // It is cut before the Spanish grade match, as assistantOfLead is before the German one.
-var assistantOfSpanishLead = regexp.MustCompile(`\b(?:(?:ayudante|asistente|adjunto|adjunta|auxiliar|secretari[oa])\s+(?:(?:del?|al|a la)\s+)?(?:jef[ea]s?|director[a]?\s+(?:general|ejecutiv[oa]|financier[oa])|direccion\s+(?:general|financiera))|subjef[ea]s?|segund[oa]\s+jef[ea])\b`)
+var assistantOfSpanishLead = regexp.MustCompile(`\b(?:(?:ayudante|asistente|adjunto|adjunta|auxiliar|secretari[oa])\s+(?:(?:del?|al|a la)\s+)?(?:jef[ea]s?|director[a]?\s+(?:general|ejecutiv[oa]|financier[oa])|direccion\s+(?:general|financiera)|gerente\s+general)|subjef[ea]s?|segund[oa]\s+jef[ea])\b`)
+
+// openingLider is a title that OPENS with "Líder": "Líder Comercial", "Lider Tester",
+// "Líder DevOps" name the lead. Anywhere else the word praises the employer ("Repositor/a
+// Consumo Masivo (Empresa Líder)", "compañía líder en su rubro"), so only the opening word
+// is read, as the "lider de" the table already carries.
+var openingLider = regexp.MustCompile(`^[^\p{L}\p{N}]*lider\b`)
 
 // foldSpanishSeniority prepares a lowercased title for the Spanish grade match.
 func foldSpanishSeniority(lower string) string {
-	return assistantOfSpanishLead.ReplaceAllString(foldSpanish(lower), " ")
+	folded := openingLider.ReplaceAllString(foldSpanish(lower), "lider de")
+	return assistantOfSpanishLead.ReplaceAllString(folded, " ")
 }
