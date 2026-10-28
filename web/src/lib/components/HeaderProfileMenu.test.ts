@@ -20,10 +20,9 @@ describe('HeaderProfileMenu', () => {
     expect(SOURCE).toContain('aria-expanded={open}');
   });
 
-  it('lists the panel items in order: Profile, account links, Submit a job, Moderation, Log out', () => {
+  it('lists the panel items in order: the account sections, Submit a job, Moderation, Log out', () => {
     const order = [
-      "resolve('/my/profile')",
-      '{#each accountLinks as link',
+      '{#each accountItems as item',
       "resolve('/submit')",
       'Submit a job',
       "resolve('/moderation')",
@@ -38,12 +37,23 @@ describe('HeaderProfileMenu', () => {
     }
   });
 
+  // The section list can outgrow a short window; only it scrolls, so Log out stays in view.
+  it('scrolls the section list, not the actions below it', () => {
+    const list = SOURCE.indexOf('overflow-y-auto');
+    const close = SOURCE.indexOf('</div>', SOURCE.indexOf('{/each}', list));
+    expect(list).toBeGreaterThan(-1);
+    expect(close).toBeLessThan(SOURCE.indexOf('Submit a job'));
+  });
+
   it('gates Moderation on the moderator role', () => {
     expect(SOURCE).toContain('{#if isModerator}');
   });
 
-  it('imports the shared account-links data instead of redeclaring it', () => {
-    expect(SOURCE).toContain("import { accountLinks } from '#lib/headerAccountLinks.js'");
+  // The sidebar's own list, not a curated copy: a copy is how the header drifted from
+  // the sidebar (missing sections, retired ones still listed).
+  it('reads the account sections from the sidebar list instead of redeclaring them', () => {
+    expect(SOURCE).toContain("import { visibleAccountNav } from '#lib/accountNav.js'");
+    expect(SOURCE).toContain("import { accountNavIcons } from '#lib/accountNavIcons.js'");
   });
 
   it('closes on outside click, Escape, and navigation', () => {

@@ -8,7 +8,11 @@
   import { openedOverlay, closedOverlay } from '#lib/headerOverlay.js';
   import { cn } from '#lib/ui/index.js';
   import { menuNav } from '#lib/actions/menuNav.js';
-  import { accountLinks } from '#lib/headerAccountLinks.js';
+  import { visibleAccountNav } from '#lib/accountNav.js';
+  import { accountNavIcons } from '#lib/accountNavIcons.js';
+  import { locale } from '#lib/i18n/currentLocale.svelte.js';
+  import { messages as shellMessages, navLabel } from '#lib/i18n/shell.js';
+  import { t } from '#lib/i18n/t.js';
 
   // Desktop-only: the profile icon doubles as a second, independent dropdown
   // trigger scoped to the signed-in user's own account, split off HeaderMenu's
@@ -22,6 +26,11 @@
 
   const email = $derived(currentUser()?.email ?? '');
   const isModerator = $derived(currentUser()?.role === 'moderator');
+
+  // The account items are the sidebar's own list — same sections, order, icons and labels
+  // — read from accountNav rather than a curated copy, which is how the two drifted apart.
+  const shell = $derived(t(shellMessages, locale()));
+  const accountItems = $derived(visibleAccountNav(isModerator, currentUser()?.beta_tester ?? false));
   // Drives the trigger's tier badge — see header-navigation's "Paying-tier badge on
   // the desktop profile icon" requirement. 'free' shows nothing.
   const tier = $derived(currentUser()?.tier ?? 'free');
@@ -108,21 +117,27 @@
         role="menu"
         aria-label="Profile"
         {@attach menuNav({ onclose: closeSelf })}
-        class="absolute right-0 top-full z-50 mt-2 w-56 rounded-md border border-border bg-background py-1 shadow-lg"
+        class="profile-panel absolute right-0 top-full z-50 mt-2 flex w-56 flex-col rounded-md border border-border bg-background py-1 shadow-lg"
       >
-        <a href={resolve('/my/profile')} role="menuitem" onclick={() => (open = false)} class={rowBase} title={email}>
-          <CircleUser class="size-4 shrink-0" />
-          Profile
-        </a>
-        {#each accountLinks as link (link.href)}
-          {@const Icon = link.icon}
-          <a href={resolve(toPath(link.href))} role="menuitem" onclick={() => (open = false)} class={rowBase}>
-            <Icon class="size-4 shrink-0" />
-            {link.label}
-          </a>
-        {/each}
+        <!-- Only the sections scroll: the actions below stay in view, so Log out never
+             needs a scroll to reach — the reason this menu was split off at all. -->
+        <div class="min-h-0 flex-1 overflow-y-auto">
+          {#each accountItems as item (item.href)}
+            {@const Icon = accountNavIcons[item.href]}
+            <a
+              href={resolve(toPath(item.href))}
+              role="menuitem"
+              onclick={() => (open = false)}
+              class={rowBase}
+              title={item.href === '/my/profile' ? email : undefined}
+            >
+              <Icon class="size-4 shrink-0" />
+              {navLabel(shell, item.href, item.label)}
+            </a>
+          {/each}
+        </div>
 
-        <div class="my-1 h-px bg-border"></div>
+        <div class="my-1 h-px shrink-0 bg-border"></div>
         <a href={resolve('/submit')} role="menuitem" onclick={() => (open = false)} class={rowBase}>
           <SquarePlus class="size-4 shrink-0" />
           Submit a job
@@ -151,3 +166,11 @@
     </button>
   {/if}
 </div>
+
+<style>
+  /* The panel lists every account section, which can be taller than a short window;
+     it stays inside the viewport, and its section list scrolls instead. */
+  .profile-panel {
+    max-height: calc(100dvh - 5rem);
+  }
+</style>
