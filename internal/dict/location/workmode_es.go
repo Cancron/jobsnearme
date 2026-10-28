@@ -1,6 +1,7 @@
 package location
 
 import (
+	"regexp"
 	"strings"
 	"unicode"
 
@@ -57,6 +58,12 @@ var spanishWorkModePhrases = []struct {
 		"posicion es remota", "posicion remota", "puesto remoto", "rol remoto",
 		"100% home office", "100 % home office", "full home office", "home office 100%",
 		"100% desde casa", "100 % desde casa",
+		// Argentina states the model as an "esquema" or a "jornada laboral". "Ubicación:
+		// remoto" is absent: Torre's template writes it above a hybrid posting's own
+		// "Modalidad de trabajo: híbrido".
+		"esquema remoto", "esquema de trabajo remoto", "esquema de empleo: remoto",
+		"esquema de trabajo: remoto", "modalidad de trabajo remota", "modalidad laboral: remota",
+		"modalidad laboral: remoto", "modalidad es remota", "trabajo remoto 100%",
 	}},
 	{"hybrid", []string{
 		"modalidad hibrida", "modalidad hibrido", "modalidad: hibrida", "modalidad: hibrido",
@@ -80,6 +87,11 @@ var spanishWorkModePhrases = []struct {
 		"opcion de teletrabajo", "posibilidad de teletrabajo", "politica de teletrabajo",
 		"ayuda al teletrabajo", "apoyo de home office", "opcion de home office",
 		"teletrabajo",
+		// Argentina's "esquema" and "jornada laboral" forms.
+		"esquema de empleo: hibrido", "esquema de trabajo: hibrido", "esquema de trabajo hibrido",
+		"modalidad laboral: hibrida", "modalidad laboral: hibrido", "jornada laboral hibrida",
+		"jornada laboral: hibrida", "modalidad es hibrida", "ubicacion: hibrido",
+		"ubicacion: hibrida",
 	}},
 	{"onsite", []string{
 		"100% presencial", "100 % presencial", "totalmente presencial",
@@ -88,6 +100,9 @@ var spanishWorkModePhrases = []struct {
 		"puesto presencial", "posicion presencial",
 		"sin teletrabajo", "sin opcion de teletrabajo", "sin posibilidad de teletrabajo",
 		"no hay teletrabajo", "no se ofrece teletrabajo", "sin home office",
+		"esquema presencial", "esquema de empleo: presencial", "esquema de trabajo: presencial",
+		"jornada laboral: presencial", "jornada laboral presencial", "modalidad laboral: presencial",
+		"modalidad: presencialidad", "presencial 100%", "ubicacion: presencial",
 	}},
 }
 
@@ -135,7 +150,15 @@ func spanishWorkMode(desc, lower string) string {
 	if !containsAny(lower, spanishWorkModeTriggers) {
 		return ""
 	}
-	text := dropAccents(foldMarkup(desc))
+	// "Modalidad de trabajo : híbrida": a space before the colon is common enough in
+	// Argentine postings to fold away.
+	text := strings.ReplaceAll(dropAccents(foldMarkup(desc)), " :", ":")
+	// A partial share or weekly office visits make whatever model the text also names
+	// hybrid: "Modalidad de trabajo: remoto, 40% presencial", "remota con flexibilidad
+	// horaria y 2 asistencias semanales en CABA".
+	if spanishSplitWeek(text) {
+		return "hybrid"
+	}
 	for _, wm := range spanishWorkModePhrases {
 		for _, p := range wm.phrases {
 			if guardedPhraseMatches(text, p, wm.mode, spanishGuards) {
@@ -145,6 +168,23 @@ func spanishWorkMode(desc, lower string) string {
 	}
 	return ""
 }
+
+// spanishSplitWeek is a week split between the office and home: a share below a hundred
+// percent ("Híbrido (40% presencial)", "Modalidad: 80% remoto") or weekly office visits
+// ("1/2 asistencias semanales"), each under the same guards as the phrase list ("no se
+// ofrece 50% teletrabajo" is not one). A hundred percent is the phrase list's ("100%
+// remoto", "100% presencial"); the singular "asistencia semanal" is absent, because
+// Mexico's "bono de asistencia semanal" is an attendance bonus.
+func spanishSplitWeek(text string) bool {
+	for _, m := range splitWeek.FindAllStringIndex(text, -1) {
+		if !spanishGuards.withdraws(text, m[0], m[1]) {
+			return true
+		}
+	}
+	return false
+}
+
+var splitWeek = regexp.MustCompile(`\b[1-9]\d? ?% (?:presencial|presencialidad|remoto|remota|en remoto|home office|teletrabajo)\b|\basistencias semanales\b`)
 
 // dropAccents removes the combining marks from text, so "híbrida" reads "hibrida" and
 // "días" reads "dias".
