@@ -59,6 +59,26 @@ export function parseDockWindows(raw: string | null, max = MAX_DOCK_WINDOWS): Do
   }
 }
 
+/** When the dock is dismissed it remembers the newest message time it had seen (ms since
+ *  the epoch, 0 with no messages yet). A conversation with an unread message newer than
+ *  that lifts the dismissal — per conversation, so reading one chat elsewhere cannot hide
+ *  a new message in another behind an unchanged total. */
+export function newestMessageAt(conversations: readonly { last_message_at: string | null }[]): number {
+  let newest = 0;
+  for (const c of conversations) {
+    const at = c.last_message_at ? Date.parse(c.last_message_at) : NaN;
+    if (at > newest) newest = at;
+  }
+  return newest;
+}
+
+export function dismissalLifted(
+  dismissedAt: number,
+  conversations: readonly { unread: number; last_message_at: string | null }[],
+): boolean {
+  return conversations.some((c) => c.unread > 0 && newestMessageAt([c]) > dismissedAt);
+}
+
 /** The dock stays off the buddies section's own page, whose Chats tab is the full-size
  *  list and pane — two copies of one conversation on one screen would each poll and
  *  mark it read. Every other page, the member pages included, gets the dock. */

@@ -6,7 +6,9 @@ import {
   dockReserveClass,
   dockToastOffsetClass,
   DraftBook,
+  dismissalLifted,
   mobileSheetId,
+  newestMessageAt,
   openDockWindow,
   parseDockWindows,
   pruneDockWindows,
@@ -111,5 +113,28 @@ describe('drafts', () => {
     expect(drafts.get(1)).toBe('');
     drafts.clear();
     expect(drafts.get(2)).toBe('');
+  });
+});
+
+describe('dock dismissal', () => {
+  const at = (iso: string) => Date.parse(iso);
+  const conv = (unread: number, last: string | null) => ({ unread, last_message_at: last });
+
+  it('remembers the newest message time it had seen, 0 with none', () => {
+    expect(newestMessageAt([])).toBe(0);
+    expect(newestMessageAt([conv(0, null), conv(1, '2026-10-27T10:00:00Z'), conv(0, '2026-10-27T09:00:00Z')])).toBe(at('2026-10-27T10:00:00Z'));
+  });
+  it('stays dismissed while nothing new arrives', () => {
+    expect(dismissalLifted(at('2026-10-27T10:00:00Z'), [conv(2, '2026-10-27T10:00:00Z')])).toBe(false);
+  });
+  it('comes back for an unread message newer than the dismissal', () => {
+    expect(dismissalLifted(at('2026-10-27T10:00:00Z'), [conv(0, null), conv(1, '2026-10-27T10:05:00Z')])).toBe(true);
+  });
+  it('comes back even when another chat was read meanwhile and the total did not move', () => {
+    const dismissed = at('2026-10-27T10:00:00Z');
+    expect(dismissalLifted(dismissed, [conv(0, '2026-10-27T09:00:00Z'), conv(1, '2026-10-27T10:05:00Z')])).toBe(true);
+  });
+  it('ignores a newer message that is already read (one the reader sent)', () => {
+    expect(dismissalLifted(at('2026-10-27T10:00:00Z'), [conv(0, '2026-10-27T10:05:00Z')])).toBe(false);
   });
 });
