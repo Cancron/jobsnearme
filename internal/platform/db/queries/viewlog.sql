@@ -19,9 +19,10 @@ WHERE public_slug = ANY(sqlc.arg('slugs')::text[]);
 -- a job's day-rows, and additivity lets a day spanning two rotated files sum right.
 --
 -- Two deltas, not one plus a breakdown. `total_delta` counts the visitors who
--- produced EITHER signal and is what `uniques` has always held — jobs.view_count and
--- GET /api/v1/stats/catalog both read from it, so it must not move. `page_delta`
--- counts the visitors who opened the PAGE, the only bot-filtered signal of the two.
+-- produced EITHER signal and is what `uniques` has always held — GET /api/v1/stats/catalog
+-- reads it, and jobs.view_count accrues it (plus ApplyDailyAgentView's agent views), so it
+-- must not move. `page_delta` counts the visitors who opened the PAGE, the only
+-- bot-filtered signal of the two.
 -- A visitor who did both is one visitor in each, so the two do not sum with an API
 -- count; the only relation between them is page_delta <= total_delta.
 WITH ins AS (
@@ -41,9 +42,25 @@ SELECT EXISTS(
     SELECT 1 FROM processed_view_logs WHERE signature = sqlc.arg('signature')
 );
 
--- name: MarkViewLogFileProcessed :exec
+-- name: MarkViewLogFileProcessed :execrows
 -- Cursor write: mark a rotated file applied. Idempotent — a concurrent/rerun mark
--- is a no-op, so the file is never double-applied.
+-- is a no-op. It reports whether THIS call claimed the file, so a pass that marks
+-- first, inside the transaction that applies the counts, applies a file at most
+-- once even when two runs race past the IsViewLogFileProcessed read.
 INSERT INTO processed_view_logs (signature, filename)
 VALUES (sqlc.arg('signature'), sqlc.arg('filename'))
 ON CONFLICT (signature) DO NOTHING;
+
+-- name: ApplyDailyAgentView :batchexec
+-- Apply one (day, job) agent-view count additively: upsert job_daily_views.agent_uniques
+-- and add the same delta to jobs.view_count. `uniques` is written as 0 on insert (it is
+-- NOT NULL with no default) and never touched on conflict, so the nginx figures and
+-- GET /api/v1/stats/catalog keep their meaning.
+WITH ins AS (
+    INSERT INTO job_daily_views (day, job_id, uniques, agent_uniques)
+    VALUES (sqlc.arg('day'), sqlc.arg('job_id'), 0, sqlc.arg('delta'))
+    ON CONFLICT (day, job_id)
+        DO UPDATE SET agent_uniques = job_daily_views.agent_uniques + EXCLUDED.agent_uniques
+)
+UPDATE jobs SET view_count = view_count + sqlc.arg('delta')
+WHERE id = sqlc.arg('job_id');

@@ -5,6 +5,7 @@ import (
 
 	"github.com/gofiber/fiber/v2"
 
+	"github.com/strelov1/freehire/internal/application/agentview"
 	"github.com/strelov1/freehire/internal/job/jobview"
 	"github.com/strelov1/freehire/internal/platform/db"
 	"github.com/strelov1/freehire/internal/platform/htmltext"
@@ -36,12 +37,14 @@ func (h *searchHandlers) AgentSearchJobs(c *fiber.Ctx) error {
 		return err
 	}
 	res := out.res
-
 	if len(res.Hits) > 0 {
 		if err := h.hydrateDescriptions(c.Context(), res.Hits); err != nil {
 			return err
 		}
 	}
+	// Recorded only once the answer is certain to be served: a failed hydration serves no
+	// postings, so it must not count them as seen.
+	agentview.Record(c.Context(), agentview.KindSearch, hitIDs(res.Hits))
 
 	format := c.Query("description_format")
 	views := make([]jobview.Job, len(res.Hits))
