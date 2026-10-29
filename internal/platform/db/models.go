@@ -1390,11 +1390,16 @@ type SocialToken struct {
 }
 
 type SourceStat struct {
-	Source         string             `json:"source"`
-	OpenJobs       int64              `json:"open_jobs"`
-	AtsMatchedJobs int64              `json:"ats_matched_jobs"`
-	BrowsableJobs  pgtype.Int8        `json:"browsable_jobs"`
-	MeasuredAt     pgtype.Timestamptz `json:"measured_at"`
+	Source              string             `json:"source"`
+	OpenJobs            int64              `json:"open_jobs"`
+	AtsMatchedJobs      int64              `json:"ats_matched_jobs"`
+	BrowsableJobs       pgtype.Int8        `json:"browsable_jobs"`
+	MeasuredAt          pgtype.Timestamptz `json:"measured_at"`
+	MissingWorkModeJobs pgtype.Int8        `json:"missing_work_mode_jobs"`
+	MissingGeoJobs      pgtype.Int8        `json:"missing_geo_jobs"`
+	MissingCompanyJobs  pgtype.Int8        `json:"missing_company_jobs"`
+	Unseen7dJobs        pgtype.Int8        `json:"unseen_7d_jobs"`
+	PostedOver60dJobs   pgtype.Int8        `json:"posted_over_60d_jobs"`
 }
 
 // Hosts refused at the public submission form. Checked only in submission.Service.Submit; never applied to a moderator-authored vacancy create.

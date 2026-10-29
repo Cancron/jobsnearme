@@ -419,3 +419,30 @@ WHERE j.closed_at IS NULL
   AND j.url <> ''
 GROUP BY j.source
 ORDER BY j.source;
+
+-- name: SourceQualityMetrics :many
+-- Each source's open postings and the five quality counts beside them, as cmd/rollup-stats
+-- last measured them (see AggregateOpenJobsBySource and migration 0213), plus when.
+--
+-- Reads the snapshot, never `jobs`: the measurement is a full scan of the open catalogue,
+-- which costs minutes on a loaded host and runs every 3 hours, while this worker runs every
+-- minute and must stay a few milliseconds. measured_at is published so a rollup that has
+-- stopped running shows up as an ageing snapshot rather than as frozen, plausible counts.
+--
+-- Its own query rather than ListSourceStats, which serves the public /api/v1/sources and
+-- should not change shape for an operator's gauge.
+--
+-- A row whose counts are NULL predates migration 0213 and has not been rebuilt since: it is
+-- skipped rather than published as zeros, which would read as "nothing missing". The
+-- rebuild writes all five together, so testing one is enough; the COALESCEs only tell sqlc
+-- the columns are non-null here.
+SELECT source, open_jobs,
+       coalesce(missing_work_mode_jobs, 0)::bigint AS missing_work_mode_jobs,
+       coalesce(missing_geo_jobs, 0)::bigint       AS missing_geo_jobs,
+       coalesce(missing_company_jobs, 0)::bigint   AS missing_company_jobs,
+       coalesce(unseen_7d_jobs, 0)::bigint         AS unseen_7d_jobs,
+       coalesce(posted_over_60d_jobs, 0)::bigint   AS posted_over_60d_jobs,
+       measured_at
+FROM source_stats
+WHERE missing_work_mode_jobs IS NOT NULL
+ORDER BY source;
