@@ -8,13 +8,18 @@
   // features when they are one group of settings, so each row carries only its own
   // heading and control (see AccountTimezone / AccountLanguage).
   //
-  // Rendered in two places — the profile's Settings section and the first-time set-up
-  // form, which is that section before there are sections — so account settings never
-  // wait on a CV upload to become reachable.
+  // Rendered only by the first-time set-up form, so account settings never wait on a CV
+  // upload to become reachable. Once a profile exists they live apart: the timezone in the
+  // profile's Location section, the language on /my/security.
   let { class: extra = '' }: { class?: string } = $props();
 </script>
 
 <section class="flex flex-col gap-5 {extra}">
-  <AccountTimezone />
+  <!-- Same anchor as the Location section's timezone: an account with no profile sees this
+       form instead, so the "set your timezone" links must land here too. The two never
+       render on one page. -->
+  <div id="account-timezone" class="scroll-mt-20">
+    <AccountTimezone />
+  </div>
   <AccountLanguage />
 </section>
