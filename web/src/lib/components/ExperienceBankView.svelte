@@ -27,6 +27,7 @@
   import PeriodDateInput from '#lib/components/PeriodDateInput.svelte';
   import { profileKickoff } from '#lib/assistant/presets.js';
   import { findFirstUnconfirmed, isUnconfirmed, sortNeedsAttentionFirst } from '#lib/experienceBank.js';
+  import { experienceBankStore } from '#lib/experienceBank.svelte.js';
   import { nextResumePollDelayMs, type CvParseState } from '#lib/onboardingResumeWait.js';
   import type {
     ExperienceAtom,
@@ -42,6 +43,16 @@
   let { onBankMutated }: { onBankMutated?: () => void } = $props();
 
   let bank = $state<ExperienceBank | null>(null);
+
+  /** Every read goes through here so the shared store gets it too, and the profile's
+   *  completeness badge follows edits and assistant turns alike. The token makes the
+   *  store drop a read that started before a sign-out. */
+  async function readBank(): Promise<ExperienceBank> {
+    const token = experienceBankStore.readToken();
+    const next = await api.getExperience();
+    experienceBankStore.accept(next, token);
+    return next;
+  }
   let loading = $state(true);
   let loadError = $state('');
   const actionError = new ActionError();
@@ -101,7 +112,7 @@
     loadError = '';
     actionError.clear();
     try {
-      bank = await api.getExperience();
+      bank = await readBank();
       selected = [];
     } catch (e) {
       loadError = errorMessage(e, 'Could not load your experience.');
@@ -117,7 +128,7 @@
    * it reports the failure.
    */
   async function reloadAfterMutation() {
-    const next = await api.getExperience();
+    const next = await readBank();
     bank = next;
     const alive = new Set(
       [...next.employments.flatMap((e) => e.atoms), ...next.unplaced].map((a) => a.id),
@@ -165,7 +176,7 @@
    */
   async function refreshBank() {
     try {
-      const next = await api.getExperience();
+      const next = await readBank();
       bank = next;
       const alive = new Set(
         [...next.employments.flatMap((e) => e.atoms), ...next.unplaced].map((a) => a.id),

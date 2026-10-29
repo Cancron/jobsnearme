@@ -40,6 +40,12 @@ export abstract class UserResource<T> {
     return this.#loaded;
   }
 
+  /** Which signed-in session this store holds; reset() moves it on. For a store that also
+   *  accepts reads made outside it, so it can drop one that outlived a sign-out. */
+  protected get generation(): number {
+    return this.#generation;
+  }
+
   /** Fetch this resource's data (one or more API calls). */
   protected abstract load(): Promise<T>;
   /** Copy fetched data into reactive state. */
@@ -62,16 +68,40 @@ export abstract class UserResource<T> {
     this.#loading = this.load()
       .then((data) => {
         if (gen !== this.#generation) return; // reset() ran mid-load — discard stale data.
+        if (this.#loaded) return; // a refresh or a write landed first and is newer.
         this.apply(data);
         this.#loaded = true;
       })
-      .catch(() => {
+      .catch((err: unknown) => {
         // best-effort: a failed load just leaves the empty/default state.
+        console.warn('user store: load failed', err);
       })
       .finally(() => {
         if (gen === this.#generation) this.#loading = null;
       });
     return this.#loading;
+  }
+
+  /** Re-fetch now, whatever `ensureLoaded` already did. Rejects on a failure, for a
+   *  caller with its own error state. Generation-guarded like the first load: a read
+   *  still in flight when the user signs out must not repopulate the store with their
+   *  data for whoever signs in next on the same tab. */
+  protected async reload(): Promise<void> {
+    const gen = this.#generation;
+    const data = await this.load();
+    if (gen !== this.#generation) return;
+    this.apply(data);
+    this.#loaded = true;
+  }
+
+  /** Re-fetch after a write, which `ensureLoaded` would no-op once loaded. Best-effort:
+   *  a failure keeps the previous copy rather than blanking it. */
+  async refresh(): Promise<void> {
+    try {
+      await this.reload();
+    } catch (err) {
+      console.warn('user store: refresh failed', err);
+    }
   }
 
   /** Drop cached data + the loaded flag on sign-out, so the next user loads their own. */
