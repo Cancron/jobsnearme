@@ -67,6 +67,20 @@ Curated dictionary deriving ISO 3166-1 alpha-2 country codes, region codes, and 
   changes nothing. The country must be the LAST token of its location ("Naples, FL,
   Naples, FL, US" repeats a US place). Measured 2026-10-28: 252 distinct lines, 4,290
   open rows carried the spurious `us`/`ca`, all removals.
+- **A country, city or region after a preposition is read** (`stripPlacePreposition`):
+  "Remote within Canada", "Based in Germany", "Anywhere in the U.S.", "Remote across
+  LATAM". The preposition used to stay glued to the name, so the token resolved to nothing
+  — "…, or Remote within Canada or United States" lost Canada for an API customer
+  filtering `countries=ca`. Only `in`/`within`/`from`/`across`/`throughout`, only after
+  lead-in words (`placeLeadWords`: a work mode, "anywhere", "based", "work from"…), and
+  only when the rest is a country, region or city name — a main-table city under its own
+  name only, never a GeoNames alias ("market" is Marquette's). A town before the
+  preposition ("Kirchheim in Schwaben") or an unknown name keeps the token whole. A bare
+  "IN" opening a line is also Indiana's code, so after it only a curated name the US has
+  no town of counts ("IN Lebanon", "IN Munster" read nothing); a state or province name is
+  left to `resolveSubdivision`, which already reads one closing a token. Measured
+  2026-10-28 over every stored location: 309 distinct lines, 901 open rows gained a
+  country or region, none lost one.
 - **A code that is both a US/CA subdivision and an ISO country is the COUNTRY when it
   closes a location of three or more tokens** (`countryCodeClosingCity`): "Toronto, ON,
   CA" and "Toronto, CA, CA" are Canada, not California; "Tel Aviv-Yafo, Tel Aviv District,
