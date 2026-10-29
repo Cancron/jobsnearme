@@ -10,6 +10,7 @@
 // the meta stays null for signed-out users.
 
 import { api } from '#lib/api.js';
+import { nextResumePollDelayMs } from '#lib/onboardingResumeWait.js';
 import { UserResource } from '#lib/userResource.svelte.js';
 import type { CandidateContacts, ResumeMeta } from '#lib/types.js';
 
@@ -49,6 +50,36 @@ class ResumeStore extends UserResource<ResumeMeta | null> {
   noteUpload(): void {
     this.#justUploaded = true;
     void this.refresh();
+  }
+
+  /** Follow the background parse an upload started until it settles. Resolves true once
+   *  it has written its result — the caller's cue to re-read what the parse feeds — and
+   *  false when it failed, the user signed out, or it outlasted the wait. The waits are
+   *  onboarding's (see onboardingResumeWait.ts): giving up is not failing, the parse goes
+   *  on server-side and its result is there on the next visit. */
+  async waitForParse(): Promise<boolean> {
+    const generation = this.generation;
+    for (let attempt = 0; ; attempt++) {
+      let status: string | undefined;
+      try {
+        // oxlint-disable-next-line no-await-in-loop -- a backoff poll is sequential by design
+        // A read superseded by another says nothing either: the copy held may predate it.
+        if (!(await this.reload())) status = 'pending';
+        else if (!this.#meta?.present) return false;
+        else status = this.#meta.parse_status;
+      } catch (err) {
+        // A failed read says nothing about the parse; the copy held is from before it.
+        console.warn('resume: parse poll failed', err);
+        status = 'pending';
+      }
+      if (generation !== this.generation) return false;
+      if (status !== 'pending') return status !== 'failed';
+      const delay = nextResumePollDelayMs(attempt);
+      if (delay === null) return false;
+      // oxlint-disable-next-line no-await-in-loop -- the wait between reads is the point
+      await new Promise((resolve) => setTimeout(resolve, delay));
+      if (generation !== this.generation) return false;
+    }
   }
 
   /** Record a saved contact block: reflect it at once, then confirm from the server.
