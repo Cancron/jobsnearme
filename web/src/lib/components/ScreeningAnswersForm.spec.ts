@@ -2,9 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/svelte';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ScreeningAnswersForm from './ScreeningAnswersForm.svelte';
 
-vi.mock('$app/state', () => ({
-  page: { data: { locale: 'en' }, url: new URL('http://localhost/') },
-}));
+const page = vi.hoisted(() => ({ data: { locale: 'en' }, url: new URL('http://localhost/') }));
+vi.mock('$app/state', () => ({ page }));
 
 const { updateScreeningAnswers, getScreeningAnswers } = vi.hoisted(() => ({
   updateScreeningAnswers: vi.fn(),
@@ -16,11 +15,88 @@ vi.mock('#lib/api.js', () => ({
 }));
 
 beforeEach(() => {
+  page.data.locale = 'en';
   updateScreeningAnswers.mockReset().mockImplementation((patch) => Promise.resolve(patch));
   getScreeningAnswers.mockReset().mockResolvedValue(null);
 });
 
 describe('ScreeningAnswersForm — autosave', () => {
+  it('saves a country picked from the list as its code', async () => {
+    render(ScreeningAnswersForm, { props: { answers: {} } });
+
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Authorized to work in' }), {
+      target: { value: 'Germ' },
+    });
+    await fireEvent.click(screen.getByRole('button', { name: /Germany/ }));
+
+    await waitFor(() => expect(updateScreeningAnswers).toHaveBeenCalledWith({ authorized_countries: ['de'] }));
+  });
+
+  it('offers only the countries the server accepts', async () => {
+    render(ScreeningAnswersForm, { props: { answers: {} } });
+
+    // Afghanistan is an ISO country the server's dictionary does not place, so the
+    // endpoint would refuse it.
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Authorized to work in' }), {
+      target: { value: 'Afghan' },
+    });
+
+    expect(screen.queryByRole('button', { name: /Afghanistan/ })).toBeNull();
+  });
+
+  it('finds a country by its name in the reader\'s language', async () => {
+    page.data.locale = 'ru';
+    render(ScreeningAnswersForm, { props: { answers: {} } });
+
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Есть разрешение на работу в' }), {
+      target: { value: 'Германия' },
+    });
+
+    expect(screen.getByRole('button', { name: /Германия/ })).toBeTruthy();
+    expect(screen.queryByRole('button', { name: /Germany/ })).toBeNull();
+  });
+
+  it('still finds a country by its English name on a translated form', async () => {
+    page.data.locale = 'ru';
+    render(ScreeningAnswersForm, { props: { answers: {} } });
+
+    await fireEvent.input(screen.getByRole('textbox', { name: 'Есть разрешение на работу в' }), {
+      target: { value: 'Germany' },
+    });
+
+    expect(screen.getByRole('button', { name: /Германия/ })).toBeTruthy();
+  });
+
+  it('keeps the currency marked while another answer changes', async () => {
+    render(ScreeningAnswersForm, { props: { answers: {} } });
+    const currency = screen.getByRole('textbox', { name: 'Currency (ISO 4217)' });
+
+    await fireEvent.input(currency, { target: { value: 'US' } });
+    await fireEvent.blur(currency);
+    await fireEvent.change(screen.getByRole('combobox', { name: 'Need visa sponsorship?' }), {
+      target: { value: 'no' },
+    });
+
+    expect(screen.getByText('Currency must be a three-letter code, like USD.')).toBeTruthy();
+    expect(updateScreeningAnswers).not.toHaveBeenCalled();
+  });
+
+  it('marks a half-typed currency on leaving it and does not save it', async () => {
+    render(ScreeningAnswersForm, { props: { answers: {} } });
+    const currency = screen.getByRole('textbox', { name: 'Currency (ISO 4217)' });
+
+    await fireEvent.input(currency, { target: { value: 'US' } });
+    await fireEvent.blur(currency);
+    await fireEvent.focusOut(currency);
+
+    expect(screen.getByText('Currency must be a three-letter code, like USD.')).toBeTruthy();
+    expect(updateScreeningAnswers).not.toHaveBeenCalled();
+
+    await fireEvent.input(currency, { target: { value: 'usd' } });
+    await fireEvent.focusOut(currency);
+    await waitFor(() => expect(updateScreeningAnswers).toHaveBeenCalledWith({ desired_salary_currency: 'usd' }));
+  });
+
   it('saves a dropdown the moment it is picked', async () => {
     render(ScreeningAnswersForm, { props: { answers: {} } });
 
