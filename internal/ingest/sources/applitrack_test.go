@@ -2,6 +2,7 @@ package sources
 
 import (
 	"context"
+	"os"
 	"strings"
 	"testing"
 )
@@ -210,6 +211,9 @@ func TestAppliTrackFetchMapsPostings(t *testing.T) {
 	if a.Location != "Central Office" {
 		t.Errorf("job 739 location = %q, want %q", a.Location, "Central Office")
 	}
+	if a.Countries != nil {
+		t.Errorf("job 739 countries = %v, want none (the listing names no state)", a.Countries)
+	}
 	want := "https://www.applitrack.com/acme/onlineapp/jobpostings/view.asp?AppliTrackJobId=739"
 	if a.URL != want {
 		t.Errorf("job 739 URL = %q, want the human-facing permalink %q", a.URL, want)
@@ -279,6 +283,83 @@ func TestAppliTrackFetchNewSkipsSeenDetail(t *testing.T) {
 		if j.Title == "" {
 			t.Errorf("job %s: a refresh must carry the title, so the catalogue filter can be "+
 				"re-applied to it", j.ExternalID)
+		}
+	}
+}
+
+// applitrackFooter reads one of the page footers under testdata/applitrack, recorded from live
+// "All Vacancies" listings on 2026-10-30 and trimmed to the footer's own document.write call:
+// cch160 (Illinois), hallcounty (Georgia), saskatoon (Saskatchewan) and pbvusd, whose tenant
+// configured a state the platform renders as "Californicredential or".
+func applitrackFooter(t *testing.T, board string) string {
+	t.Helper()
+	b, err := os.ReadFile("testdata/applitrack/footer_" + board + ".js")
+	if err != nil {
+		t.Fatalf("read fixture: %v", err)
+	}
+	return string(b)
+}
+
+func TestAppliTrackBoardState(t *testing.T) {
+	cases := []struct {
+		board, state, country string
+	}{
+		{"cch160", "Illinois", "us"},
+		// A picklist that names a state: here Georgia is the US state, not the country.
+		{"hallcounty", "Georgia", "us"},
+		{"saskatoon", "Saskatchewan", "ca"},
+		// A value no dictionary knows states nothing, rather than a guess.
+		{"pbvusd", "", ""},
+	}
+	for _, c := range cases {
+		root := parseHTML(t, applitrackMarkup(t, applitrackFooter(t, c.board)))
+		got := applitrackBoardState(root)
+		if got.name != c.state || got.country != c.country {
+			t.Errorf("%s: state = %+v, want (%q, %q)", c.board, got, c.state, c.country)
+		}
+	}
+	// A page with no footer link states nothing either.
+	if got := applitrackBoardState(parseHTML(t, applitrackMarkup(t, applitrackListingBody))); got != (applitrackState{}) {
+		t.Errorf("listing with no footer: state = %+v, want none", got)
+	}
+}
+
+func TestAppliTrackFetchPlacesPostingsInTheBoardState(t *testing.T) {
+	fake := (&routedHTTP{}).
+		route("AppliTrackJobId=739", applitrackDetail739).
+		route("AppliTrackJobId=812", applitrackDetail812).
+		route("AppliTrackJobId=900", applitrackDetail900).
+		route("AppliTrackJobId=950", applitrackDetail950).
+		route("all=1", applitrackListingBody+applitrackFooter(t, "cch160"))
+	src := NewAppliTrack(fake)
+	unseen := func(string) bool { return false }
+	// Both entry points hydrate an unseen posting, and each passes the board's state on.
+	fetchers := map[string]func() ([]Job, error){
+		"Fetch": func() ([]Job, error) { return src.Fetch(context.Background(), applitrackEntry()) },
+		"FetchNew": func() ([]Job, error) {
+			return src.(HydratingSource).FetchNew(context.Background(), applitrackEntry(), unseen)
+		},
+	}
+	want := map[string]string{
+		"739": "Central Office, Illinois",
+		// A posting with no site row is still placed in its district's state.
+		"812": "Illinois",
+	}
+	for name, fetch := range fetchers {
+		jobs, err := fetch()
+		if err != nil {
+			t.Fatalf("%s: %v", name, err)
+		}
+		if len(jobs) != len(want) {
+			t.Fatalf("%s: got %d jobs, want %d", name, len(jobs), len(want))
+		}
+		for _, j := range jobs {
+			if j.Location != want[j.ExternalID] {
+				t.Errorf("%s: job %s location = %q, want %q", name, j.ExternalID, j.Location, want[j.ExternalID])
+			}
+			if len(j.Countries) != 1 || j.Countries[0] != "us" {
+				t.Errorf("%s: job %s countries = %v, want [us]", name, j.ExternalID, j.Countries)
+			}
 		}
 	}
 }
