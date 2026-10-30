@@ -2,6 +2,7 @@ package linksource
 
 import (
 	"context"
+	"maps"
 	"net/url"
 	"slices"
 	"strings"
@@ -120,14 +121,14 @@ func ResolveOnBoard(ctx context.Context, reg map[string]sources.Source, source, 
 // takes a seen predicate; supplying one that reports every posting EXCEPT the one raw points at as
 // already seen limits hydration to just that posting — the mirror image of how
 // pipeline.Runner.fetchBoard uses the same predicate to skip postings the store already has. The
-// target's external id is guessed from raw's path segments, the same heuristic pickPosting's id
-// fallback uses to identify a posting once the board is in hand.
+// target's external id is guessed from raw's path segments and query values (postingRefs), the
+// same heuristic pickPosting's id fallback uses to identify a posting once the board is in hand.
 func fetchForResolve(ctx context.Context, adapter sources.Source, e sources.CompanyEntry, raw string) ([]sources.Job, error) {
 	hs, hydrating := adapter.(sources.HydratingSource)
 	if !hydrating {
 		return adapter.Fetch(ctx, e)
 	}
-	want := pathSegmentsFromEnd(raw)
+	want := postingRefs(raw)
 	seen := func(externalID string) bool {
 		return !slices.ContainsFunc(want, func(seg string) bool { return segmentNamesID(seg, externalID) })
 	}
@@ -146,6 +147,11 @@ func segmentNamesID(seg, id string) bool {
 // locale prefix, a slug that changed after the title was edited), but the id in the last path
 // segment survives all of those.
 //
+// The URL comparison ignores the query, except that a parameter both URLs carry must agree. A
+// pasted link's tracking parameters are noise, but a platform that names the posting ONLY in the
+// query — eRecruiter's Offer.aspx?oid=<id>, the same path for every offer — is identified by
+// exactly that parameter, and ignoring it handed back whichever offer came first.
+//
 // An Unreadable marker is never a match. It carries a posting's identity WITHOUT its detail,
 // so it answers both predicates — and it is not the safe near-miss SeenRefresh is here, it is
 // the opposite: the marker exists precisely because that posting could not be read, which for
@@ -153,18 +159,17 @@ func segmentNamesID(seg, id string) bool {
 // no title, which job.New rejects as an invalid draft, which reaches the reader as a 500 on a
 // URL whose honest answer is "we could not read a vacancy from that url".
 func pickPosting(jobs []sources.Job, raw string) (sources.Job, bool) {
-	want := normalizeURL(raw)
 	for _, j := range jobs {
 		if j.Unreadable {
 			continue
 		}
-		if normalizeURL(j.URL) == want {
+		if sameURL(raw, j.URL) {
 			return j, true
 		}
 	}
-	for _, seg := range pathSegmentsFromEnd(raw) {
+	for _, seg := range postingRefs(raw) {
 		for _, j := range jobs {
-			if j.Unreadable {
+			if j.Unreadable || !queryAgrees(raw, j.URL) {
 				continue
 			}
 			if segmentNamesID(seg, j.ExternalID) {
@@ -173,6 +178,46 @@ func pickPosting(jobs []sources.Job, raw string) (sources.Job, bool) {
 		}
 	}
 	return sources.Job{}, false
+}
+
+// sameURL reports whether a link and a posting's URL address the same posting: equal once
+// normalized (normalizeURL), and agreeing on every query parameter both carry (queryAgrees).
+func sameURL(raw, posting string) bool {
+	return normalizeURL(raw) == normalizeURL(posting) && queryAgrees(raw, posting)
+}
+
+// queryAgrees reports whether no query parameter present in both URLs carries different values.
+// It vetoes the id match too: a query value on a link (a tracking ref, a sibling id) can equal
+// some other posting's id, and that posting's own URL then names a different oid than the link.
+func queryAgrees(raw, posting string) bool {
+	a, errA := url.Parse(strings.TrimSpace(raw))
+	b, errB := url.Parse(strings.TrimSpace(posting))
+	if errA != nil || errB != nil {
+		return true // nothing to disagree with
+	}
+	qa, qb := a.Query(), b.Query()
+	for k, v := range qb {
+		if trackingParam(k) {
+			continue
+		}
+		if w, ok := qa[k]; ok && !slices.Equal(v, w) {
+			return false
+		}
+	}
+	return true
+}
+
+// trackingParams are the query parameters that say how a link travelled rather than what it
+// points at, besides the utm_ family trackingParam matches by prefix. A stored posting URL can
+// carry them too (micro1 stores its utm_ referral values), so they must never veto a match.
+var trackingParams = map[string]bool{
+	"gclid": true, "fbclid": true, "msclkid": true, "trk": true, "gh_src": true,
+	"ref": true, "src": true, "source": true,
+}
+
+func trackingParam(k string) bool {
+	k = strings.ToLower(k)
+	return strings.HasPrefix(k, "utm_") || trackingParams[k]
 }
 
 // normalizeURL reduces a posting URL to what identifies it: scheme-less, lowercased host with
@@ -185,6 +230,25 @@ func normalizeURL(raw string) string {
 	}
 	host := strings.TrimPrefix(strings.ToLower(u.Hostname()), "www.")
 	return host + strings.TrimSuffix(u.Path, "/")
+}
+
+// postingRefs returns what in a link may name the posting's id, in the order to try them: the
+// path segments last-first, then the query values. Most platforms put the id in the path; a few
+// name it only in the query (eRecruiter's oid), and a query value that names no posting on the
+// board matches nothing.
+func postingRefs(raw string) []string {
+	refs := pathSegmentsFromEnd(raw)
+	u, err := url.Parse(raw)
+	if err != nil {
+		return refs
+	}
+	q := u.Query()
+	for _, k := range slices.Sorted(maps.Keys(q)) {
+		if !trackingParam(k) {
+			refs = append(refs, q[k]...)
+		}
+	}
+	return refs
 }
 
 // pathSegmentsFromEnd returns a URL's path segments last-first — the order to look for a
