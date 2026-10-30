@@ -59,9 +59,24 @@ func TestExtractCompany_UsesTheSharedFormList(t *testing.T) {
 		// would leave it behind where the catalogue key drops it.
 		"Acme Software Private Limited": "acme software",
 		"Acme Software Pvt. Ltd.":       "acme software",
+		"Acme Software Sp. z o. o.":     "acme software",
 	} {
 		if got := ExtractCompany(from, ""); got != want {
 			t.Errorf("ExtractCompany(%q) = %q, want %q", from, got, want)
+		}
+	}
+}
+
+func TestExtractCompany_SubjectNameDropsItsLegalForm(t *testing.T) {
+	// A relayed confirmation names the company only in the subject, and Resolve compares it
+	// with a candidate whose form normalizeForMatch has stripped — so the subject's must go too.
+	for subject, want := range map[string]string{
+		"Thanks for applying to Acme Ltd":         "acme",
+		"Thanks for applying to Acme Sp. z o. o.": "acme",
+		"Your Acme Kft. application":              "acme",
+	} {
+		if got := ExtractCompany("", subject); got != want {
+			t.Errorf("ExtractCompany(subject %q) = %q, want %q", subject, got, want)
 		}
 	}
 }
