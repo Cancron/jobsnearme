@@ -11,11 +11,15 @@
 
 import { api } from '#lib/api.js';
 import type { Answers } from '#lib/generated/contracts.js';
+import { serialQueue } from '#lib/serialQueue.js';
 import { UserResource } from '#lib/userResource.svelte.js';
 
 class ScreeningStore extends UserResource<Answers | null> {
   // Reassigned (never mutated in place) on every change, so $state.raw is enough.
   #answers = $state.raw<Answers | null>(null);
+  // Saves go one at a time, so two dropdowns picked a moment apart reach the server in the
+  // order they were picked and the last pick is the one that stays.
+  #queue = serialQueue();
 
   get answers(): Answers | null {
     return this.#answers;
@@ -37,6 +41,22 @@ class ScreeningStore extends UserResource<Answers | null> {
 
   protected apply(row: Answers | null) {
     this.#answers = row;
+  }
+
+  /** Save part of the answers. The PUT answers with the whole stored record, so that
+   *  becomes the current copy with no re-read after it. A save belongs to whoever was
+   *  signed in when it was made, so a sign-out in between drops it, checked twice: before
+   *  sending (one still waiting in the queue would otherwise go out on the NEXT account's
+   *  cookie) and on the answer (one already sent must not refill the store). */
+  save(patch: Partial<Answers>): Promise<void> {
+    const generation = this.generation;
+    return this.#queue(async () => {
+      if (generation !== this.generation) return;
+      const answers = await api.updateScreeningAnswers(patch);
+      if (generation !== this.generation) return;
+      this.#answers = answers;
+      this.markLoaded();
+    });
   }
 
   protected clearState() {

@@ -30,10 +30,8 @@ export const messages = defineMessages(
       day: 'Day',
       hour: 'Hour',
     },
-    save: 'Save screening answers',
-    saved: 'Screening answers saved.',
-    saveFailed: 'Could not save screening answers.',
-    mustBeNumber: '{field} must be a number.',
+    mustBeWholeNumber: '{field} must be a whole number.',
+    mustBePositive: '{field} must be a whole number above zero.',
   },
   {
     ru: {
@@ -65,10 +63,8 @@ export const messages = defineMessages(
         day: 'День',
         hour: 'Час',
       },
-      save: 'Сохранить ответы',
-      saved: 'Ответы сохранены.',
-      saveFailed: 'Не удалось сохранить ответы.',
-      mustBeNumber: '«{field}» должно быть числом.',
+      mustBeWholeNumber: '«{field}» должно быть целым числом.',
+      mustBePositive: '«{field}» должно быть целым числом больше нуля.',
     },
   },
 );

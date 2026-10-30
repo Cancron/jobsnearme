@@ -1,8 +1,11 @@
 <script lang="ts">
+  import { untrack } from 'svelte';
   import type { Answers } from '#lib/generated/contracts.js';
-  import { announce } from '#lib/announce.svelte.js';
-  import { api } from '#lib/api.js';
-  import { Button, Input } from '#lib/ui/index.js';
+  import { Input } from '#lib/ui/index.js';
+  import { SaveStatus } from '#lib/saveStatus.svelte.js';
+  import { screeningStore } from '#lib/screening.svelte.js';
+  import { TextAutosave } from '#lib/textAutosave.js';
+  import SaveStatusLine from './SaveStatus.svelte';
   import { messages } from './ScreeningAnswersForm.messages';
   import { locale } from '#lib/i18n/currentLocale.svelte.js';
   import { format, t } from '#lib/i18n/t.js';
@@ -10,10 +13,15 @@
   // Editable form for the six screening questions that repeat across ATS application
   // forms (work authorization, visa sponsorship, desired salary, notice period,
   // willingness to relocate, 18+) plus the standing privacy consent — see internal/screeninganswers/AGENTS.md. Standalone
-  // section on the profile's Screening answers tab, its own heading and its own save action,
-  // deliberately separate from ProfileForm (a different lifecycle: these are facts the
-  // candidate states directly, not a CV/skills targeting profile).
-  let { answers = null, onSaved }: { answers?: Answers | null; onSaved?: () => void } = $props();
+  // section on the profile's Screening answers tab, deliberately separate from ProfileForm
+  // (a different lifecycle: these are facts the candidate states directly, not a
+  // CV/skills targeting profile).
+  //
+  // It autosaves like every profile card (TextAutosave): a typed field a second after
+  // typing stops or when focus leaves the form, a dropdown at once. Auto-apply sends these
+  // answers to real employers, so a number field that does not read as a number is marked
+  // and not saved.
+  let { answers = null }: { answers?: Answers | null } = $props();
 
   const s = $derived(t(messages, locale()));
 
@@ -32,19 +40,13 @@
     return undefined;
   }
 
-  // Number(...) alone silently turns anything unparseable (a stray letter, or a very
-  // natural "120,000" with a thousands separator) into NaN, which JSON.stringify then
-  // serializes as null — indistinguishable on the wire from the field being omitted, so
-  // the server would leave the stored value untouched while this form still reports
-  // success. Strip thousands separators first, then fail loudly rather than silently
-  // dropping the field the candidate typed a value into.
-  function parseWholeNumber(raw: string, fieldLabel: string): number {
-    const n = Number(raw.replace(/,/g, ''));
-    if (!Number.isFinite(n)) {
-      throw new Error(format(s.mustBeNumber, { field: fieldLabel }));
-    }
-    return n;
-  }
+  // Only plain decimal digits, or digits grouped by commas in threes ("120,000"), are read
+  // as a number; anything else is NaN and refused. Number() on its own is too generous:
+  // it reads "0x10" as 16 and "1e5" as 100000, and silently turns "120,000" into NaN, which
+  // JSON.stringify sends as null — an omitted field the server leaves untouched while the
+  // form looked saved. And "120,00" is a typo, not 12000.
+  const wholeNumber = (raw: string) =>
+    /^\d+$/.test(raw) || /^\d{1,3}(,\d{3})+$/.test(raw) ? Number(raw.replace(/,/g, '')) : Number.NaN;
 
   let authorizedCountriesText = $state((answers?.authorized_countries ?? []).join(', '));
   let visaSponsorshipNeeded = $state<TriState>(toTriState(answers?.visa_sponsorship_needed));
@@ -55,17 +57,104 @@
   let willingToRelocate = $state<TriState>(toTriState(answers?.willing_to_relocate));
   let age18OrOlder = $state<TriState>(toTriState(answers?.age_18_or_older));
   let privacyConsent = $state<TriState>(toTriState(answers?.privacy_consent));
+  let salaryInvalid = $state(false);
+  let noticeInvalid = $state(false);
 
-  let busy = $state(false);
-  let error = $state<string | null>(null);
-  let note = $state<string | null>(null);
-  // Set by any keystroke, cleared right before a save request is sent, so a reload after
-  // this component's own save (the parent re-fetches and passes a new `answers` prop)
-  // never overwrites an edit not yet saved.
-  let dirty = $state(false);
+  // Only fields with a value are sent — the server's partial-update contract leaves an
+  // omitted field exactly as stored, so a blank input means "unchanged", not "clear it"
+  // (there is no clear operation; see the Store.Update doc comment). The stored answers go
+  // through the same shape, so the two compare field for field.
+  function patchOf(v: {
+    countries: string[];
+    sponsorship?: boolean;
+    salary: string;
+    currency: string;
+    period: string;
+    notice: string;
+    relocate?: boolean;
+    age?: boolean;
+    consent?: boolean;
+  }): Partial<Answers> {
+    const patch: Partial<Answers> = {};
+    if (v.countries.length > 0) patch.authorized_countries = v.countries;
+    if (v.sponsorship !== undefined) patch.visa_sponsorship_needed = v.sponsorship;
+    if (v.salary !== '') patch.desired_salary_amount = wholeNumber(v.salary);
+    if (v.currency !== '') patch.desired_salary_currency = v.currency;
+    if (v.period !== '') patch.desired_salary_period = v.period;
+    if (v.notice !== '') patch.notice_period_days = wholeNumber(v.notice);
+    if (v.relocate !== undefined) patch.willing_to_relocate = v.relocate;
+    if (v.age !== undefined) patch.age_18_or_older = v.age;
+    if (v.consent !== undefined) patch.privacy_consent = v.consent;
+    return patch;
+  }
 
+  const read = () =>
+    patchOf({
+      countries: authorizedCountriesText
+        .split(',')
+        .map((c) => c.trim())
+        .filter(Boolean),
+      sponsorship: fromTriState(visaSponsorshipNeeded),
+      salary: desiredSalaryAmount.trim(),
+      currency: desiredSalaryCurrency.trim(),
+      period: desiredSalaryPeriod,
+      notice: noticePeriodDays.trim(),
+      relocate: fromTriState(willingToRelocate),
+      age: fromTriState(age18OrOlder),
+      consent: fromTriState(privacyConsent),
+    });
+
+  const saved = () =>
+    patchOf({
+      countries: answers?.authorized_countries ?? [],
+      sponsorship: answers?.visa_sponsorship_needed,
+      salary: answers?.desired_salary_amount?.toString() ?? '',
+      currency: answers?.desired_salary_currency ?? '',
+      period: answers?.desired_salary_period ?? '',
+      notice: answers?.notice_period_days?.toString() ?? '',
+      relocate: answers?.willing_to_relocate,
+      age: answers?.age_18_or_older,
+      consent: answers?.privacy_consent,
+    });
+
+  // The endpoint's own rules (screeninganswers.Validate), applied here so a value it would
+  // refuse is marked on its field instead of coming back as a failed save: a whole number,
+  // and for the salary above zero. NaN fails Number.isInteger, so "12k" is caught too.
+  const wholeAtLeast = (value: number | undefined, minimum: number) =>
+    value === undefined || (Number.isInteger(value) && value >= minimum);
+  const salaryOk = (patch: Partial<Answers>) => wholeAtLeast(patch.desired_salary_amount, 1);
+  const noticeOk = (patch: Partial<Answers>) => wholeAtLeast(patch.notice_period_days, 0);
+
+  const status = new SaveStatus();
+  const autosave = new TextAutosave<Partial<Answers>>({
+    status,
+    read,
+    saved,
+    // Queued and session-guarded in the store; the PUT's own answer is the fresh copy, so
+    // no re-read follows it and a failed one cannot hand the form stale answers.
+    save: (patch) => screeningStore.save(patch),
+    valid: (patch) => salaryOk(patch) && noticeOk(patch),
+    // A number cannot be half-typed into something invalid — only a letter or a bad comma
+    // makes it so — so it is marked after the pause too, not only on leaving the field.
+    refused: (patch) => {
+      salaryInvalid = !salaryOk(patch);
+      noticeInvalid = !noticeOk(patch);
+    },
+    // Re-sending the earlier answers reverses a change only where the earlier answer had a
+    // value: a field filled in for the first time cannot be cleared again.
+    canUndo: (before, next) =>
+      (Object.keys(next) as (keyof Answers)[]).every(
+        (k) => JSON.stringify(next[k]) === JSON.stringify(before[k]) || before[k] !== undefined,
+      ),
+  });
+
+  // Follow the stored answers when they change elsewhere (an Undo, another tab), only
+  // while nothing typed here is unsent, and reading the boxes untracked so a keystroke
+  // never re-runs it (see CandidateContactsEditor).
   $effect(() => {
-    if (dirty) return;
+    const stored = saved();
+    if (autosave.holding) return;
+    if (JSON.stringify(stored) === JSON.stringify(untrack(read))) return;
     authorizedCountriesText = (answers?.authorized_countries ?? []).join(', ');
     visaSponsorshipNeeded = toTriState(answers?.visa_sponsorship_needed);
     desiredSalaryAmount = answers?.desired_salary_amount?.toString() ?? '';
@@ -77,75 +166,49 @@
     privacyConsent = toTriState(answers?.privacy_consent);
   });
 
-  function markDirty() {
-    dirty = true;
+  function edited() {
+    salaryInvalid = false;
+    noticeInvalid = false;
+    autosave.edited();
   }
 
-  // Only fields with a value in the form are sent — the server's partial-update contract
-  // leaves an omitted field exactly as stored, so a blank input here means "unchanged",
-  // not "clear it" (there is no clear operation; see the Store.Update doc comment).
-  async function save() {
-    busy = true;
-    error = null;
-    note = null;
-    dirty = false;
-    // Patch construction lives inside the try too: a throw here left busy stuck at true
-    // forever in an earlier version (nothing downstream to reset it), which read as a
-    // permanently-disabled button with no error shown — worse than the error path itself.
-    try {
-      const patch: Partial<Answers> = {};
-      const countries = authorizedCountriesText
-        .split(',')
-        .map((c) => c.trim())
-        .filter(Boolean);
-      if (countries.length > 0) patch.authorized_countries = countries;
-      const sponsorship = fromTriState(visaSponsorshipNeeded);
-      if (sponsorship !== undefined) patch.visa_sponsorship_needed = sponsorship;
-      if (desiredSalaryAmount.trim() !== '') patch.desired_salary_amount = parseWholeNumber(desiredSalaryAmount, s.fields.desiredSalaryAmount);
-      if (desiredSalaryCurrency.trim() !== '') patch.desired_salary_currency = desiredSalaryCurrency.trim();
-      if (desiredSalaryPeriod !== '') patch.desired_salary_period = desiredSalaryPeriod;
-      if (noticePeriodDays.trim() !== '') patch.notice_period_days = parseWholeNumber(noticePeriodDays, s.fields.noticePeriod);
-      const relocate = fromTriState(willingToRelocate);
-      if (relocate !== undefined) patch.willing_to_relocate = relocate;
-      const age = fromTriState(age18OrOlder);
-      if (age !== undefined) patch.age_18_or_older = age;
-      const consent = fromTriState(privacyConsent);
-      if (consent !== undefined) patch.privacy_consent = consent;
-
-      await api.updateScreeningAnswers(patch);
-      note = s.saved;
-      announce(s.saved);
-      onSaved?.();
-    } catch (e) {
-      error = e instanceof Error ? e.message : s.saveFailed;
-      announce(error, 'assertive');
-      // The save never landed — these values are still unsaved and must stay protected.
-      dirty = true;
-    } finally {
-      busy = false;
-    }
+  function commit() {
+    autosave.commit();
   }
+
+  // A dropdown is a whole answer the moment it is picked; nothing to wait for.
+  function picked() {
+    edited();
+    commit();
+  }
+
+  $effect(() => () => {
+    autosave.commit(true);
+  });
 </script>
 
-<section class="flex flex-col gap-4">
-  <div class="flex flex-col gap-1">
-    <h3 class="text-sm font-semibold">{s.heading}</h3>
-    <p class="text-xs text-muted-foreground">
-      {s.description}
-    </p>
+<section class="flex flex-col gap-4" onfocusout={commit}>
+  <div class="flex items-start justify-between gap-3">
+    <div class="flex flex-col gap-1">
+      <h3 class="text-sm font-semibold">{s.heading}</h3>
+      <p class="text-xs text-muted-foreground">
+        {s.description}
+      </p>
+    </div>
+    <SaveStatusLine {status} />
   </div>
 
   <div class="grid gap-3 sm:grid-cols-2">
     <label class="flex flex-col gap-1 text-sm sm:col-span-2">
       <span class="text-muted-foreground">{s.fields.authorizedCountries}</span>
-      <Input bind:value={authorizedCountriesText} oninput={markDirty} placeholder={s.fields.authorizedCountriesPlaceholder} class="w-full" />
+      <Input bind:value={authorizedCountriesText} oninput={edited} placeholder={s.fields.authorizedCountriesPlaceholder} class="w-full" />
     </label>
 
     <label class="flex flex-col gap-1 text-sm">
       <span class="text-muted-foreground">{s.fields.visaSponsorship}</span>
       <select
         bind:value={visaSponsorshipNeeded}
-        onchange={markDirty}
+        onchange={picked}
         class="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
       >
         <option value="">{s.triState.notStated}</option>
@@ -158,7 +221,7 @@
       <span class="text-muted-foreground">{s.fields.relocate}</span>
       <select
         bind:value={willingToRelocate}
-        onchange={markDirty}
+        onchange={picked}
         class="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
       >
         <option value="">{s.triState.notStated}</option>
@@ -171,7 +234,7 @@
       <span class="text-muted-foreground">{s.fields.age18}</span>
       <select
         bind:value={age18OrOlder}
-        onchange={markDirty}
+        onchange={picked}
         class="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
       >
         <option value="">{s.triState.notStated}</option>
@@ -184,7 +247,7 @@
       <span class="text-muted-foreground">{s.fields.privacyConsent}</span>
       <select
         bind:value={privacyConsent}
-        onchange={markDirty}
+        onchange={picked}
         class="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
       >
         <option value="">{s.triState.notStated}</option>
@@ -200,24 +263,44 @@
            bound) as a string, but Svelte's bind:value on a native type="number" input
            coerces to a JS number regardless — desiredSalaryAmount.trim() below would
            throw. inputmode still gets the numeric keyboard on mobile without that trap. -->
-      <Input inputmode="numeric" bind:value={noticePeriodDays} oninput={markDirty} placeholder="30" class="w-full" />
+      <Input
+        inputmode="numeric"
+        bind:value={noticePeriodDays}
+        oninput={edited}
+        placeholder="30"
+        aria-invalid={noticeInvalid}
+        class="w-full {noticeInvalid ? 'border-destructive focus-visible:ring-destructive' : ''}"
+      />
+      {#if noticeInvalid}
+        <span class="text-xs text-destructive">{format(s.mustBeWholeNumber, { field: s.fields.noticePeriod })}</span>
+      {/if}
     </label>
 
     <label class="flex flex-col gap-1 text-sm">
       <span class="text-muted-foreground">{s.fields.desiredSalaryAmount}</span>
-      <Input inputmode="numeric" bind:value={desiredSalaryAmount} oninput={markDirty} placeholder="120000" class="w-full" />
+      <Input
+        inputmode="numeric"
+        bind:value={desiredSalaryAmount}
+        oninput={edited}
+        placeholder="120000"
+        aria-invalid={salaryInvalid}
+        class="w-full {salaryInvalid ? 'border-destructive focus-visible:ring-destructive' : ''}"
+      />
+      {#if salaryInvalid}
+        <span class="text-xs text-destructive">{format(s.mustBePositive, { field: s.fields.desiredSalaryAmount })}</span>
+      {/if}
     </label>
 
     <label class="flex flex-col gap-1 text-sm">
       <span class="text-muted-foreground">{s.fields.currency}</span>
-      <Input bind:value={desiredSalaryCurrency} oninput={markDirty} placeholder="USD" maxlength={3} class="w-full" />
+      <Input bind:value={desiredSalaryCurrency} oninput={edited} placeholder="USD" maxlength={3} class="w-full" />
     </label>
 
     <label class="flex flex-col gap-1 text-sm">
       <span class="text-muted-foreground">{s.fields.salaryPeriod}</span>
       <select
         bind:value={desiredSalaryPeriod}
-        onchange={markDirty}
+        onchange={picked}
         class="w-full rounded-md border border-border bg-background px-3 py-2 text-sm"
       >
         <option value="">{s.triState.notStated}</option>
@@ -229,12 +312,4 @@
     </label>
   </div>
 
-  <div class="flex flex-wrap items-center gap-2">
-    <Button size="sm" variant="primary" disabled={busy} onclick={save}>{s.save}</Button>
-  </div>
-  {#if error}
-    <p class="text-sm text-destructive">{error}</p>
-  {:else if note}
-    <p class="text-xs text-muted-foreground">{note}</p>
-  {/if}
 </section>
