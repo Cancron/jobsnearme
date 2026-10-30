@@ -5445,6 +5445,13 @@ type Querier interface {
 	// and the UPDATE's row lock, in which case the enqueue happens and the close does not.
 	// That is the harmless direction: whoever closed it queued the same removal, and the
 	// queue is ON CONFLICT DO NOTHING on job_id.
+	//
+	// seen_before, when set, is the staleness cutoff the caller selected its candidates by. A
+	// probe answers minutes after that read, and a crawl that listed the posting again in between
+	// (UpsertJob/RefreshUnchangedJob stamp last_seen_at = now()) has just proved it live; the
+	// verdict was reached on a stale read and must write nothing — no strike, no close, no
+	// queued removal — so the statement matches no row (pgx.ErrNoRows). NULL keeps the old
+	// behaviour for a caller whose candidates no crawl re-lists.
 	MarkLivenessExpired(ctx context.Context, arg MarkLivenessExpiredParams) (MarkLivenessExpiredRow, error)
 	// Stamp notified_at on the jobs that were just delivered for a subscription, so
 	// they leave the pending queue and are never sent again.
@@ -6878,15 +6885,6 @@ type Querier interface {
 	// ResetUserPassword — the revocation cannot be separated from the seizure.
 	// Returns the new generation for the session the sign-in is about to mint.
 	SeizeUnverifiedAccount(ctx context.Context, id int64) (int32, error)
-	// cmd/adzuna-liveness's candidates: open adzuna postings the crawl has stopped listing.
-	// Adzuna's feed is far deeper than the crawl's request budget (157k US it-jobs postings in
-	// 14 days, 750 read per run), so "unseen" there is not evidence of removal and the sweep
-	// cannot settle these — Adzuna's own page can, and that worker reads it.
-	//
-	// ORDER BY random() rather than by age because most probes end on a challenge page and
-	// leave the row untouched: a fixed order would hand the same unanswered rows to every
-	// bounded run and never reach the rest. Sampling reaches every row with nothing to store.
-	SelectAdzunaLivenessCandidates(ctx context.Context, arg SelectAdzunaLivenessCandidatesParams) ([]SelectAdzunaLivenessCandidatesRow, error)
 	// ---------------------------------------------------------------------------
 	// cmd/similar-backfill: the run-once-and-exit worker that populates
 	// jobs.similar_job_ids/similar_computed_at from NearestJobsToJob above. Finds
@@ -6933,6 +6931,16 @@ type Querier interface {
 	// so is a posting with no outside page (an employer vacancy taking applications on
 	// freehire): there is nothing to request, and its employer closes it.
 	SelectOrphanLivenessCandidates(ctx context.Context, atsProviders []string) ([]SelectOrphanLivenessCandidatesRow, error)
+	// cmd/adzuna-liveness's candidates: open postings of one source the crawl has stopped listing.
+	// For adzuna "unseen" is not evidence of removal (its feed is far deeper than the crawl's
+	// request budget: 157k US it-jobs postings in 14 days, 750 read per run); for wellfound it
+	// strands a posting whose company left every role slice the crawl reads, out of the sweep's
+	// reach. The source's own page settles both, and that worker reads it.
+	//
+	// ORDER BY random() rather than by age because most adzuna probes end on a challenge page and
+	// leave the row untouched: a fixed order would hand the same unanswered rows to every
+	// bounded run and never reach the rest. Sampling reaches every row with nothing to store.
+	SelectScraplingLivenessCandidates(ctx context.Context, arg SelectScraplingLivenessCandidatesParams) ([]SelectScraplingLivenessCandidatesRow, error)
 	// Liveness backstop for a registered provider whose ingest sweep cannot reach every open
 	// job — see job-lifecycle: CloseUnseenJobs scopes closes to the company_slugs a run
 	// actually crawled, so a company that ages out of a recency-budgeted aggregator's crawl

@@ -2351,20 +2351,21 @@ WHERE closed_at IS NULL
   AND source = ANY(sqlc.arg(sources)::text[])
   AND last_seen_at < sqlc.arg(cutoff);
 
--- name: SelectAdzunaLivenessCandidates :many
--- cmd/adzuna-liveness's candidates: open adzuna postings the crawl has stopped listing.
--- Adzuna's feed is far deeper than the crawl's request budget (157k US it-jobs postings in
--- 14 days, 750 read per run), so "unseen" there is not evidence of removal and the sweep
--- cannot settle these — Adzuna's own page can, and that worker reads it.
+-- name: SelectScraplingLivenessCandidates :many
+-- cmd/adzuna-liveness's candidates: open postings of one source the crawl has stopped listing.
+-- For adzuna "unseen" is not evidence of removal (its feed is far deeper than the crawl's
+-- request budget: 157k US it-jobs postings in 14 days, 750 read per run); for wellfound it
+-- strands a posting whose company left every role slice the crawl reads, out of the sweep's
+-- reach. The source's own page settles both, and that worker reads it.
 --
--- ORDER BY random() rather than by age because most probes end on a challenge page and
+-- ORDER BY random() rather than by age because most adzuna probes end on a challenge page and
 -- leave the row untouched: a fixed order would hand the same unanswered rows to every
 -- bounded run and never reach the rest. Sampling reaches every row with nothing to store.
-SELECT id, external_id, public_slug, liveness_strikes
+SELECT id, external_id, url, public_slug, liveness_strikes
 FROM jobs
 WHERE closed_at IS NULL
   AND NOT is_private
-  AND source = 'adzuna'
+  AND source = sqlc.arg(source)
   AND last_seen_at < sqlc.arg(cutoff)
 ORDER BY random()
 LIMIT sqlc.arg(max_rows);
@@ -2386,11 +2387,19 @@ LIMIT sqlc.arg(max_rows);
 -- and the UPDATE's row lock, in which case the enqueue happens and the close does not.
 -- That is the harmless direction: whoever closed it queued the same removal, and the
 -- queue is ON CONFLICT DO NOTHING on job_id.
+--
+-- seen_before, when set, is the staleness cutoff the caller selected its candidates by. A
+-- probe answers minutes after that read, and a crawl that listed the posting again in between
+-- (UpsertJob/RefreshUnchangedJob stamp last_seen_at = now()) has just proved it live; the
+-- verdict was reached on a stale read and must write nothing — no strike, no close, no
+-- queued removal — so the statement matches no row (pgx.ErrNoRows). NULL keeps the old
+-- behaviour for a caller whose candidates no crawl re-lists.
 WITH queued AS (
     INSERT INTO search_delete_outbox (job_id)
     SELECT j.id FROM jobs j
     WHERE j.id = sqlc.arg(id)
       AND j.closed_at IS NULL
+      AND (sqlc.narg(seen_before)::timestamptz IS NULL OR j.last_seen_at < sqlc.narg(seen_before))
       AND j.liveness_strikes + 1 >= sqlc.arg(threshold)
     ON CONFLICT (job_id) DO NOTHING
 )
@@ -2409,6 +2418,7 @@ SET liveness_strikes = jobs.liveness_strikes + 1,
     END,
     updated_at = now()
 WHERE jobs.id = sqlc.arg(id)
+  AND (sqlc.narg(seen_before)::timestamptz IS NULL OR jobs.last_seen_at < sqlc.narg(seen_before))
 RETURNING jobs.id, jobs.liveness_strikes, jobs.closed_at;
 
 -- name: ResetLivenessStrikes :exec
