@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -457,6 +458,40 @@ func (s *dbStore) Touch(ctx context.Context, source, externalID string) error {
 	// save(), so the run would report 0% and read as the very churn the line exists to expose.
 	s.tally.record(source, true)
 	return nil
+}
+
+// refreshCoveredChunk bounds one RefreshCoveredJobs statement. A board's covered postings are
+// refreshed in one pass after its crawl — 4dayweek's ~22k at once — and a chunk keeps any one
+// statement's row locks and runtime small beside the crawl's own writes.
+const refreshCoveredChunk = 5000
+
+// RefreshCovered refreshes the liveness of the open stored rows among a board's covered
+// postings, and records each refreshed row's company as crawled, as Touch does, so the sweep's
+// company scope reaches the rows the aggregator no longer lists. Implements
+// pipeline.CoveredRefresher. Not counted in the write tally: the gate declined these postings,
+// so they are not writes of the run.
+//
+// The companies are recorded only once every chunk has succeeded: a company whose postings span
+// two chunks, one refreshed and one not, must not enter the sweep's scope, or the sweep would
+// close its listed-but-unrefreshed rows.
+func (s *dbStore) RefreshCovered(ctx context.Context, source string, externalIDs []string) (int, error) {
+	var refreshed []string
+	for chunk := range slices.Chunk(externalIDs, refreshCoveredChunk) {
+		slugs, err := s.q.RefreshCoveredJobs(ctx, db.RefreshCoveredJobsParams{
+			Source:      source,
+			ExternalIds: chunk,
+		})
+		if err != nil {
+			return 0, fmt.Errorf("refresh covered jobs %s: %w", source, err)
+		}
+		refreshed = append(refreshed, slugs...)
+	}
+	if s.crawled != nil {
+		for _, slug := range refreshed {
+			s.crawled.record(source, slug)
+		}
+	}
+	return len(refreshed), nil
 }
 
 // CompanyDescriptionDue implements pipeline.CompanyDescriptionFiller: whether the company

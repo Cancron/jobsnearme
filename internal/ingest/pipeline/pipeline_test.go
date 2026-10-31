@@ -24,6 +24,7 @@ type fakeStore struct {
 	saved     []job.Job
 	closed    [][2]string
 	touched   [][2]string
+	refreshed map[string][]string // source -> external ids passed to RefreshCovered
 	err       error
 	seenIDs   map[string]bool            // stored (namespaced) external_id -> is_tech evidence
 	seenByBrd map[string]map[string]bool // per-board sets, keyed by the requested board
@@ -104,6 +105,20 @@ func (s *fakeStore) Touch(_ context.Context, source, externalID string) error {
 	}
 	s.touched = append(s.touched, [2]string{source, externalID})
 	return nil
+}
+
+// RefreshCovered reports every id as a stored open row.
+func (s *fakeStore) RefreshCovered(_ context.Context, source string, externalIDs []string) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.err != nil {
+		return 0, s.err
+	}
+	if s.refreshed == nil {
+		s.refreshed = map[string][]string{}
+	}
+	s.refreshed[source] = append(s.refreshed[source], externalIDs...)
+	return len(externalIDs), nil
 }
 
 // fakeCoverage answers NonAggregatorCompanies from a canned covered set, and records every
@@ -1113,6 +1128,82 @@ func TestCoverageProbeFailureHydratesEverything(t *testing.T) {
 	}
 	if len(src.coveredBack) != 0 {
 		t.Errorf("covered = %v, want empty — a failed probe must not claim coverage", src.coveredBack)
+	}
+}
+
+// A covered posting is not written, but the catalogue may already hold it — stored before its
+// employer's own board joined the fleet. Dropping it without a word left that row's last_seen_at
+// frozen and its company out of the sweep's scope, so it stayed open whether or not the
+// aggregator still listed it: on 2026-10-30, 17,306 of 4dayweek's 23,046 open rows had gone
+// unseen for a week, 98% of them under a covered employer. The gate still decides what is
+// WRITTEN; what it listed is refreshed, so the stored row's liveness tells the truth again.
+func TestRunRefreshesAStoredPostingTheCoverageGateSkips(t *testing.T) {
+	src := fakeSource{provider: "himalayas", jobs: []sources.Job{
+		{ExternalID: "1", Title: "Backend Engineer", Company: "Acme"},
+		{ExternalID: "2", Title: "Frontend Engineer", Company: "Acme"},
+		{ExternalID: "3", Title: "Data Engineer", Company: "Uncovered"},
+	}}
+	store := &fakeStore{}
+	coverage := &fakeCoverage{covered: map[string]bool{"acme": true}}
+	r := Runner{Registry: registry(src), Store: store, Coverage: coverage}
+
+	stats, err := r.Run(context.Background(), []sources.CompanyEntry{
+		{Company: "Himalayas", Provider: "himalayas"},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got := stats.Total().Refreshed; got != 2 {
+		t.Errorf("Refreshed = %d, want 2 — what the store reported refreshing", got)
+	}
+	got := slices.Sorted(slices.Values(store.refreshed["himalayas"]))
+	if want := []string{":1", ":2"}; !slices.Equal(got, want) {
+		t.Errorf("refreshed = %v, want %v — every covered posting, and only those", got, want)
+	}
+	if len(store.saved) != 1 {
+		t.Errorf("saved %d postings, want 1 — the gate still decides what is written", len(store.saved))
+	}
+}
+
+// The streaming path runs the same gate one posting at a time, so it owes the same refresh.
+func TestRunRefreshesStreamedPostingsTheCoverageGateSkips(t *testing.T) {
+	src := fakeStreamingSource{provider: "jobtech", failAfter: -1, jobs: []sources.Job{
+		{ExternalID: "1", Title: "Backend Engineer", Company: "Acme"},
+		{ExternalID: "2", Title: "Data Engineer", Company: "Uncovered"},
+	}}
+	store := &fakeStore{}
+	coverage := &fakeCoverage{covered: map[string]bool{"acme": true}}
+	r := Runner{Registry: registry(src), Store: store, Coverage: coverage}
+
+	stats, err := r.Run(context.Background(), []sources.CompanyEntry{
+		{Company: "Acme", Provider: "jobtech", Board: "acme"},
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got, want := store.refreshed["jobtech"], []string{"acme:1"}; !slices.Equal(got, want) {
+		t.Errorf("refreshed = %v, want %v", got, want)
+	}
+	if got := stats.Total().Refreshed; got != 1 {
+		t.Errorf("Refreshed = %d, want 1", got)
+	}
+}
+
+// A board with nothing covered asks the store for nothing.
+func TestRunRefreshesNothingWhenNothingIsCovered(t *testing.T) {
+	src := fakeSource{provider: "himalayas", jobs: []sources.Job{
+		{ExternalID: "1", Title: "Backend Engineer", Company: "Acme"},
+	}}
+	store := &fakeStore{}
+	r := Runner{Registry: registry(src), Store: store, Coverage: &fakeCoverage{}}
+
+	if _, err := r.Run(context.Background(), []sources.CompanyEntry{
+		{Company: "Himalayas", Provider: "himalayas"},
+	}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(store.refreshed) != 0 {
+		t.Errorf("refreshed = %v, want no call", store.refreshed)
 	}
 }
 
