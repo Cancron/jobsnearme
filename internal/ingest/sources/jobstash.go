@@ -23,8 +23,13 @@ const (
 	jobstashDetailURL = "https://jobstash.xyz/jobs/%s/details"
 	jobstashPageSize  = 200
 	// jobstashMaxPages bounds pagination so a server that mis-reports total (never
-	// emptying its data) cannot loop forever; the empty-page check ends it sooner.
+	// emptying its data) cannot loop forever; running out of pages fails the crawl.
 	jobstashMaxPages = 200
+	// jobstashMinDistinctPercent is how many of the stated total must be DISTINCT postings for a
+	// finished walk to count as the whole catalogue. Not 100: a posting published mid-walk shifts
+	// the pages, so one posting is read twice while the total grows by one. A server that ignores
+	// the page parameter repeats one page and falls far below it.
+	jobstashMinDistinctPercent = 99
 )
 
 // NewJobStash builds the JobStash adapter over the given HTTP client.
@@ -37,6 +42,14 @@ func (jobstash) boardless() {}
 
 // jobstash aggregates postings from many companies, so it stays in the source facet.
 func (jobstash) aggregator() {}
+
+// jobstash lists its whole catalogue every run: the list endpoint pages through every posting
+// (measured 2026-10-31: 85 pages of 200, 16,963 postings), and list fails a walk that ends
+// short of the reported total or on a page that states none. So the sweep may close by source,
+// which reaches the postings of an employer with nothing left in the feed — the company scope
+// never names that employer again, and on 2026-10-31 ~3k open postings under such employers
+// had gone unseen for a week. See the fullCatalog interface (source.go) for the bar.
+func (jobstash) fullCatalog() {}
 
 // jobstashPosting is one posting with its body inline (no detail call). url is already the
 // right target: the downstream ATS link for a public posting, the JobStash page for a
@@ -72,11 +85,17 @@ func (j jobstash) Fetch(ctx context.Context, _ CompanyEntry) ([]Job, error) {
 	return jobs, nil
 }
 
-// list walks the job-list endpoint page by page (page size jobstashPageSize) until the
-// reported total is reached or a page returns no postings, whichever comes first. Each page
-// carries postings with their body inline.
+// list walks the job-list endpoint page by page (page size jobstashPageSize) until it has read
+// the reported total. Each page carries postings with their body inline.
+//
+// The walk is the whole catalogue or an error, because jobstash is swept by source: a page that
+// states no total (an empty catalogue included), one that comes back empty before the total, a
+// walk that runs out of pages, or one whose pages repeat (jobstashMinDistinctPercent) would
+// otherwise read as every unlisted posting gone. The total is the latest page's, so a catalogue
+// that shrinks during the walk still ends cleanly.
 func (j jobstash) list(ctx context.Context) ([]jobstashPosting, error) {
 	var all []jobstashPosting
+	distinct := make(map[string]bool)
 	for page := 1; page <= jobstashMaxPages; page++ {
 		var resp struct {
 			Total int               `json:"total"`
@@ -86,12 +105,25 @@ func (j jobstash) list(ctx context.Context) ([]jobstashPosting, error) {
 		if err := j.http.GetJSON(ctx, url, &resp); err != nil {
 			return nil, fmt.Errorf("jobstash: page %d: %w", page, err)
 		}
+		// Without a total nothing proves the walk complete, and any count would pass for it.
+		if resp.Total <= 0 {
+			return nil, fmt.Errorf("jobstash: page %d stated no total", page)
+		}
 		all = append(all, resp.Data...)
-		if len(resp.Data) == 0 || len(all) >= resp.Total {
-			break
+		for _, p := range resp.Data {
+			distinct[p.ShortUUID] = true
+		}
+		if len(all) >= resp.Total {
+			if len(distinct)*100 < resp.Total*jobstashMinDistinctPercent {
+				return nil, fmt.Errorf("jobstash: walk read %d distinct postings of %d", len(distinct), resp.Total)
+			}
+			return all, nil
+		}
+		if len(resp.Data) == 0 {
+			return nil, fmt.Errorf("jobstash: page %d listed nothing after %d of %d postings", page, len(all), resp.Total)
 		}
 	}
-	return all, nil
+	return nil, fmt.Errorf("jobstash: listing not finished after %d pages (%d postings read)", jobstashMaxPages, len(all))
 }
 
 // toJob maps an inline posting to a Job, returning ok=false for an unusable posting (no

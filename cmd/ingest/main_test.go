@@ -87,6 +87,9 @@ func TestSweepBySource(t *testing.T) {
 		// Without its seen-set a budgeted adapter refreshes nothing it already stored, so
 		// every stored posting would read as gone.
 		{"full-catalog, seen-set unknown", pipeline.Stats{Ingested: 1000, SeenUnknown: 1}, true, false},
+		// A covered posting the listing named but whose refresh failed keeps its old
+		// last_seen_at, and the source scope would read that as gone.
+		{"full-catalog, covered refresh failed", pipeline.Stats{Ingested: 1000, RefreshFailed: 3}, true, false},
 	}
 	for _, tc := range cases {
 		if got := sweepBySource(tc.stats, tc.fullCatalog); got != tc.want {
@@ -100,6 +103,16 @@ func TestSweepBySource(t *testing.T) {
 // requests died wrote everything it could read while missing postings that are still live, so
 // its companies are subtracted here. Recording and closing are separate decisions, and only
 // the second one lacks the evidence.
+// A failed covered refresh leaves listed rows with their old last_seen_at. The company scope
+// could still name such a row's company through another board's refresh, and RefreshCoveredJobs
+// never reopens what it would wrongly close, so the run withholds the company scope too.
+func TestSweepableCompaniesWithheldAfterAFailedCoveredRefresh(t *testing.T) {
+	got := sweepableCompanies([]string{"acme", "globex"}, pipeline.Stats{Ingested: 5, Refreshed: 3, RefreshFailed: 2})
+	if got != nil {
+		t.Errorf("sweepableCompanies = %v, want nil", got)
+	}
+}
+
 func TestSweepableCompanies(t *testing.T) {
 	cases := []struct {
 		name    string
