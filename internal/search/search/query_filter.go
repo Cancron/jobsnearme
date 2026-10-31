@@ -49,6 +49,9 @@ var StringFacets = map[string]string{
 	// settings patch declaring the attribute filterable MUST reach the live index
 	// before a binary carrying this line does — otherwise every facets request 500s.
 	"requires_clearance": "requires_clearance",
+	// via_recruiter is true-or-absent too, and enrolled in /jobs/facets the same way —
+	// so the same settings-before-binary order applies.
+	"via_recruiter": "via_recruiter",
 	// ai_interview is written on the document at index time from the company's report
 	// count (see JobDocument.AIInterview), so it filters on the bare attribute.
 	"ai_interview": "ai_interview",
@@ -129,6 +132,11 @@ func facetEq(param, attr, val string) string {
 // posting — the vast majority — carries no such attribute at all.
 const RequiresClearanceParam = "requires_clearance"
 
+// ViaRecruiterParam asks whether the posting states it is published by an
+// intermediary on a client's behalf. True-or-absent: "hide recruiter posts" is the
+// useful question, and it must keep every posting the dictionary did not mark.
+const ViaRecruiterParam = "via_recruiter"
+
 // AIInterviewParam asks whether the posting's company screens with an AI interviewer.
 // Same true-or-absent shape: a job carries the attribute only when its company has at
 // least one un-retracted report, and the useful question is the negative — "do not show
@@ -147,6 +155,7 @@ const AutoApplyAvailableParam = "auto_apply_available"
 // everyone else. They share one predicate builder because they share one hazard.
 var trueOrAbsentParams = map[string]bool{
 	RequiresClearanceParam:  true,
+	ViaRecruiterParam:       true,
 	AIInterviewParam:        true,
 	AutoApplyAvailableParam: true,
 }
@@ -157,7 +166,9 @@ var trueOrAbsentParams = map[string]bool{
 // whole catalogue. Negating the positive is what actually answers "everything not
 // marked", including the documents that omit the attribute.
 func trueOrAbsentFragment(attr, val string) string {
-	if val == "false" {
+	// Case-insensitive, like the validator that admitted the value (query_values.go):
+	// "False" read as true would return exactly the postings the caller hid.
+	if strings.EqualFold(strings.TrimSpace(val), "false") {
 		return "NOT " + EqBool(attr, true)
 	}
 	return EqBool(attr, true)
@@ -172,6 +183,14 @@ func facetNeq(param, attr, val string) string {
 	}
 	if set := impliedRegions(val); param == "regions" && set != nil {
 		return NotInStrings(attr, set)
+	}
+	// A true-or-absent facet is never stored false, so `attr != "false"` matches every
+	// document: excluding a value means asking for its opposite.
+	if trueOrAbsentParams[param] {
+		if strings.EqualFold(strings.TrimSpace(val), "false") {
+			return trueOrAbsentFragment(attr, "true")
+		}
+		return trueOrAbsentFragment(attr, "false")
 	}
 	attr, val = retiredCategory(param, attr, val)
 	return Neq(attr, val)
