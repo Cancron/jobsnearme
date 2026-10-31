@@ -5,9 +5,11 @@ package pipeline
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -445,7 +447,16 @@ func (r Runner) Run(ctx context.Context, entries []sources.CompanyEntry) (RunSta
 	}
 	wg.Wait()
 
-	return byProv, ctx.Err()
+	if err := ctx.Err(); err != nil {
+		return byProv, err
+	}
+	// A board interrupted while the context is still alive met a limiter's early deadline
+	// refusal (limiterOutOfRun). The run did not crawl it, so it reports itself cut short like
+	// any run its deadline ended, and cmd/ingest narrows its sweep accordingly.
+	if byProv.Total().Interrupted > 0 {
+		return byProv, errLimiterOutOfRun
+	}
+	return byProv, nil
 }
 
 // maxRecoveryProbes bounds how many cooled boards a provider is probed with before a
@@ -626,8 +637,9 @@ func (r Runner) ingestBoard(ctx context.Context, e sources.CompanyEntry) Stats {
 	}
 
 	raw, seen, deferred, err := r.fetchBoard(ctx, e, src)
-	if err != nil && ctx.Err() != nil {
-		// The run's context ended under the fetch: running out of time is not the board's
+	if err != nil && (ctx.Err() != nil || limiterOutOfRun(err)) {
+		// The run's context ended under the fetch, or a rate limiter refused the request
+		// because it could not be sent before that end: running out of time is not the board's
 		// failure, the same reading markInterrupted gives a board that returned in time.
 		log.Printf("ingest: %s board %q (%s) interrupted by the run's end: %v", e.Provider, e.Board, e.Company, err)
 		return Stats{Interrupted: 1}
@@ -1259,6 +1271,25 @@ func (r Runner) paused(ctx context.Context, e sources.CompanyEntry) pause {
 		return pausedQuiet
 	}
 	return notPaused
+}
+
+// limiterDeadlineRefusal is what golang.org/x/time/rate's Limiter.Wait returns when the next
+// token falls after the context's deadline. It refuses at once, AHEAD of the deadline, so the
+// context still reports nothing — and the package exports no sentinel to match instead.
+// TestRunCountsALimiterDeadlineRefusalAsInterrupted produces the error with a real limiter, so
+// a change to the wording fails that test rather than silently cooling boards again.
+const limiterDeadlineRefusal = "would exceed context deadline"
+
+// errLimiterOutOfRun is Run's error when a rate limiter refused a board's request ahead of the
+// deadline. It wraps context.DeadlineExceeded because that is what happened, one step early.
+var errLimiterOutOfRun = fmt.Errorf("a rate limiter could not admit a request before the run's deadline: %w", context.DeadlineExceeded)
+
+// limiterOutOfRun reports whether a fetch failed because a rate limiter could not admit its
+// request before the run's deadline: the run ran out, not the board. Every paced adapter's
+// queued boards fail this way in a run's last seconds, and recorded as failures they were
+// cooled run after run (phenom, 2026-10-30: 160 of 383 boards).
+func limiterOutOfRun(err error) bool {
+	return strings.Contains(err.Error(), limiterDeadlineRefusal)
 }
 
 // boardHealthTimeout bounds one board-health write. The write runs on a context detached from
