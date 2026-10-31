@@ -1,12 +1,14 @@
 <script lang="ts">
+  import { tick } from 'svelte';
   import { Clock, Mail } from '@lucide/svelte';
   import { companyLogoUrl } from '#lib/logo.js';
-  import { EntityLogo } from '#lib/ui/index.js';
+  import { EntityLogo, LoadMore } from '#lib/ui/index.js';
   import { groupedStages } from '#lib/stages.js';
   import { locale } from '#lib/i18n/currentLocale.svelte.js';
   import { timeAgo } from '#lib/utils.js';
   import type { BoardItem } from '#lib/board.js';
   import type { MyJob } from '#lib/types.js';
+  import InfiniteScroll from './InfiniteScroll.svelte';
   import { messages } from './BoardList.messages';
   import { format, plural, t } from '#lib/i18n/t.js';
 
@@ -27,13 +29,41 @@
   const company = (i: BoardItem) => i.job?.company || i.company_slug;
   const title = (i: BoardItem) => i.job?.title || i.role_title;
   const s = $derived(t(messages, locale()));
+
+  // Rows are drawn a page at a time as the list scrolls: each carries a stage select of
+  // every stage, so 500 applications were ~10k nodes built on load. Nothing is fetched —
+  // the rows are already here — so there is no failure to retry.
+  const PAGE = 50;
+  let limit = $state(PAGE);
+  const visible = $derived(items.slice(0, limit));
+  const showMore = () => (limit += PAGE);
+  let list: HTMLUListElement | undefined = $state();
+  let fallback: HTMLDivElement | undefined = $state();
+
+  // The button goes away with the last page, and focus would fall to <body> — back to the
+  // top for a keyboard user. It moves to the first row the press drew instead.
+  async function showMoreFromKeyboard() {
+    const first = limit;
+    showMore();
+    await tick();
+    list?.children[first]?.querySelector('button')?.focus();
+  }
+
+  // Tabbing onto the fallback scrolls it into view, and the sentinel just above it with
+  // it — so the observer can draw a page while the button holds focus. Only the last page
+  // takes the button away; then focus moves, or it falls to <body> all the same. Before
+  // that it stays on the button, which the reader has not pressed.
+  const showMoreFromSentinel = () =>
+    fallback?.contains(document.activeElement) && limit + PAGE >= items.length
+      ? showMoreFromKeyboard()
+      : showMore();
 </script>
 
 {#if items.length === 0}
   <p class="py-8 text-center text-sm text-muted-foreground">{s.empty}</p>
 {:else}
-  <ul class="flex flex-col divide-y divide-border rounded-xl border border-border">
-    {#each items as item (item.id)}
+  <ul bind:this={list} class="flex flex-col divide-y divide-border rounded-xl border border-border">
+    {#each visible as item (item.id)}
       <li class="flex items-center gap-3 px-3 py-2.5 transition-colors hover:bg-accent/50">
         <!-- The employer and role open the application; the stage control beside them
              does not, so it is a sibling rather than a child. -->
@@ -93,4 +123,17 @@
       </li>
     {/each}
   </ul>
+  {#if items.length > limit}
+    <!-- Remounted per page: on a viewport taller than a page the sentinel is still in
+         view after the rows land, and only a fresh observer reports that. -->
+    {#key limit}
+      <InfiniteScroll enabled onLoad={showMoreFromSentinel} />
+    {/key}
+    <!-- The control InfiniteScroll leaves to its caller, for whoever moves by keyboard or
+         reads with a screen reader rather than scrolls. Hidden until it takes focus: the
+         list reads as one continuous list for everyone else. -->
+    <div bind:this={fallback} class="sr-only focus-within:not-sr-only">
+      <LoadMore loading={false} onclick={showMoreFromKeyboard} />
+    </div>
+  {/if}
 {/if}
